@@ -1,4 +1,9 @@
-
+--================================================--
+-- Nuclear Labs Client - LocalScript (v2.5 PATCHED)
+--================================================--
+-- Place this as a LocalScript in StarterPlayerScripts or StarterGui.
+-- Client-side admin/troll menu for your own game (Studio/testing).
+--================================================--
 
 --================================================--
 -- SERVICES
@@ -17,9 +22,30 @@ local LocalPlayer = Players.LocalPlayer
 local Camera = Workspace.CurrentCamera
 
 --================================================--
+-- SOUND IDS (PATCHABLE VIA OPTIONS TAB)
+--================================================--
+local SoundIds = {
+    WrongKey = "rbxassetid://133295018060041",
+    CorrectKey = "rbxassetid://130206997868957",
+    ButtonClick = "rbxassetid://82845990304289",
+    Notification = "rbxassetid://131390520971848",
+    TrollFail = "rbxassetid://133843340754810",
+    TrollSuccess = "rbxassetid://135329036031873"
+}
+
+local function playSound(id, volume, parent)
+    local s = Instance.new("Sound")
+    s.SoundId = id
+    s.Volume = volume or 1
+    s.Parent = parent or SoundService
+    s:Play()
+    game.Debris:AddItem(s, 5)
+    return s
+end
+
+--================================================--
 -- UTILITY FUNCTIONS
 --================================================--
-
 local function safeGetCharacter()
     local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
     return char
@@ -37,6 +63,7 @@ end
 
 local function notify(title, text, duration)
     duration = duration or 3
+    playSound(SoundIds.Notification, 0.8)
     pcall(function()
         StarterGui:SetCore("SendNotification", {
             Title = title,
@@ -44,16 +71,6 @@ local function notify(title, text, duration)
             Duration = duration
         })
     end)
-end
-
-local function createSound(parent, soundId, volume, looped)
-    local s = Instance.new("Sound")
-    s.SoundId = soundId
-    s.Volume = volume or 1
-    s.Looped = looped or false
-    s.Parent = parent
-    s:Play()
-    return s
 end
 
 local function getVehicleSeat()
@@ -84,12 +101,12 @@ local function lookAt(targetPart, lookPart)
     targetPart.CFrame = CFrame.new(targetPart.Position, targetPart.Position + dir)
 end
 
-local function isPlayerLookingAt(targetPart, player)
+local function isPlayerLookingAt(targetPart)
     local cam = Camera
     local dir = (targetPart.Position - cam.CFrame.Position).Unit
     local lookDir = cam.CFrame.LookVector.Unit
     local dot = dir:Dot(lookDir)
-    return dot > 0.95 -- fairly close to center of view
+    return dot > 0.95
 end
 
 local function getRandomPlayer(excludeLocal)
@@ -103,23 +120,11 @@ local function getRandomPlayer(excludeLocal)
     return list[math.random(1, #list)]
 end
 
-local function getPlayerByName(partial)
-    partial = partial:lower()
-    for _, plr in ipairs(Players:GetPlayers()) do
-        if plr.Name:lower():sub(1, #partial) == partial then
-            return plr
-        end
-    end
-    return nil
-end
-
 --================================================--
 -- STATE TABLES
 --================================================--
-
 local MovementState = {
     Fly = false,
-    VehicleFly = false,
     Noclip = false,
     InfiniteJump = false,
     Dash = false,
@@ -144,7 +149,10 @@ local TrollState = {
     FakeDisconnect = false,
     FakeJoin = false,
     FakeLeave = false,
-    CloneCharacter = false
+    CloneCharacter = false,
+    ConfuseControls = false,
+    RandomTeleport = false,
+    Grab = false
 }
 
 local VisualState = {
@@ -170,10 +178,8 @@ local VehicleState = {
 local PhysicsState = {
     OrbitParts = false,
     OrbitRadius = 20,
-    OrbitSpeed = 1,
-    BlackHole = false,
-    ExplosionRing = false,
-    OrbitPartsList = {}
+    OrbitSpeed = 2,
+    BlackHole = false
 }
 
 local ESPState = {
@@ -186,23 +192,20 @@ local ESPState = {
 --================================================--
 -- UI CREATION
 --================================================--
-
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "NuclearLabsClient"
 ScreenGui.ResetOnSpawn = false
 ScreenGui.IgnoreGuiInset = true
 ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
 
--- Blur behind GUI
 local Blur = Instance.new("BlurEffect")
 Blur.Size = 0
 Blur.Parent = Lighting
 
--- Main Frame
 local MainFrame = Instance.new("Frame")
 MainFrame.Name = "MainFrame"
-MainFrame.Size = UDim2.new(0, 600, 0, 350)
-MainFrame.Position = UDim2.new(0.5, -300, 0.5, -175)
+MainFrame.Size = UDim2.new(0, 650, 0, 380)
+MainFrame.Position = UDim2.new(0.5, -325, 0.5, -190)
 MainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
 MainFrame.BackgroundTransparency = 0.25
 MainFrame.BorderSizePixel = 0
@@ -210,7 +213,6 @@ MainFrame.Active = true
 MainFrame.Draggable = true
 MainFrame.Parent = ScreenGui
 
--- Glassmorphism effect
 local MainCorner = Instance.new("UICorner")
 MainCorner.CornerRadius = UDim.new(0, 12)
 MainCorner.Parent = MainFrame
@@ -220,7 +222,6 @@ MainStroke.Thickness = 2
 MainStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
 MainStroke.Parent = MainFrame
 
--- Animated rainbow border
 local function animateRainbowStroke(stroke)
     local hue = 0
     RunService.RenderStepped:Connect(function(dt)
@@ -230,7 +231,6 @@ local function animateRainbowStroke(stroke)
 end
 animateRainbowStroke(MainStroke)
 
--- Top bar
 local TopBar = Instance.new("Frame")
 TopBar.Name = "TopBar"
 TopBar.Size = UDim2.new(1, 0, 0, 32)
@@ -239,13 +239,8 @@ TopBar.BackgroundTransparency = 0.2
 TopBar.BorderSizePixel = 0
 TopBar.Parent = MainFrame
 
-local TopCorner = Instance.new("UICorner")
-TopCorner.CornerRadius = UDim.new(0, 12)
-TopCorner.Parent = TopBar
-
 local TitleLabel = Instance.new("TextLabel")
-TitleLabel.Name = "TitleLabel"
-TitleLabel.Size = UDim2.new(0, 200, 1, 0)
+TitleLabel.Size = UDim2.new(0, 220, 1, 0)
 TitleLabel.Position = UDim2.new(0, 10, 0, 0)
 TitleLabel.BackgroundTransparency = 1
 TitleLabel.Text = "Nuclear Labs Client"
@@ -255,9 +250,7 @@ TitleLabel.Font = Enum.Font.GothamBold
 TitleLabel.TextSize = 18
 TitleLabel.Parent = TopBar
 
--- Minimize button
 local MinimizeButton = Instance.new("TextButton")
-MinimizeButton.Name = "MinimizeButton"
 MinimizeButton.Size = UDim2.new(0, 32, 0, 24)
 MinimizeButton.Position = UDim2.new(1, -72, 0.5, -12)
 MinimizeButton.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
@@ -271,9 +264,7 @@ local MinCorner = Instance.new("UICorner")
 MinCorner.CornerRadius = UDim.new(0, 6)
 MinCorner.Parent = MinimizeButton
 
--- Close button
 local CloseButton = Instance.new("TextButton")
-CloseButton.Name = "CloseButton"
 CloseButton.Size = UDim2.new(0, 32, 0, 24)
 CloseButton.Position = UDim2.new(1, -36, 0.5, -12)
 CloseButton.BackgroundColor3 = Color3.fromRGB(80, 30, 30)
@@ -287,10 +278,8 @@ local CloseCorner = Instance.new("UICorner")
 CloseCorner.CornerRadius = UDim.new(0, 6)
 CloseCorner.Parent = CloseButton
 
--- Search bar
 local SearchBox = Instance.new("TextBox")
-SearchBox.Name = "SearchBox"
-SearchBox.Size = UDim2.new(0, 200, 0, 24)
+SearchBox.Size = UDim2.new(0, 220, 0, 24)
 SearchBox.Position = UDim2.new(1, -260, 0.5, -12)
 SearchBox.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
 SearchBox.PlaceholderText = "Search features..."
@@ -304,10 +293,8 @@ local SearchCorner = Instance.new("UICorner")
 SearchCorner.CornerRadius = UDim.new(0, 6)
 SearchCorner.Parent = SearchBox
 
--- Tabs container
 local TabsFrame = Instance.new("Frame")
-TabsFrame.Name = "TabsFrame"
-TabsFrame.Size = UDim2.new(0, 120, 1, -32)
+TabsFrame.Size = UDim2.new(0, 130, 1, -32)
 TabsFrame.Position = UDim2.new(0, 0, 0, 32)
 TabsFrame.BackgroundTransparency = 1
 TabsFrame.Parent = MainFrame
@@ -318,7 +305,7 @@ TabsList.Padding = UDim.new(0, 4)
 TabsList.Parent = TabsFrame
 
 local TabNames = {
-    "Welcome",   -- new
+    "Welcome",
     "Movement",
     "Entity",
     "Troll",
@@ -327,24 +314,18 @@ local TabNames = {
     "Physics",
     "Utility",
     "ESP",
-    "Options"    -- new
+    "Options"
 }
-
 
 local TabButtons = {}
 local ContentFrames = {}
 
--- Content container
 local ContentHolder = Instance.new("Frame")
-ContentHolder.Name = "ContentHolder"
-ContentHolder.Size = UDim2.new(1, -120, 1, -32)
-ContentHolder.Position = UDim2.new(0, 120, 0, 32)
+ContentHolder.Size = UDim2.new(1, -130, 1, -32)
+ContentHolder.Position = UDim2.new(0, 130, 0, 32)
 ContentHolder.BackgroundTransparency = 1
 ContentHolder.Parent = MainFrame
 
-
-
--- Helper to create tab button
 local function createTabButton(name)
     local btn = Instance.new("TextButton")
     btn.Name = name .. "Tab"
@@ -363,7 +344,6 @@ local function createTabButton(name)
     TabButtons[name] = btn
 end
 
--- Helper to create content frame
 local function createContentFrame(name)
     local frame = Instance.new("ScrollingFrame")
     frame.Name = name .. "Content"
@@ -387,11 +367,6 @@ for _, name in ipairs(TabNames) do
     createContentFrame(name)
 end
 
--- ESP tab is part of Utility group but separate content
-createTabButton("ESP")
-createContentFrame("ESP")
-
--- Tab switching
 local function setActiveTab(name)
     for tabName, frame in pairs(ContentFrames) do
         frame.Visible = (tabName == name)
@@ -407,34 +382,30 @@ end
 
 for name, btn in pairs(TabButtons) do
     btn.MouseButton1Click:Connect(function()
+        playSound(SoundIds.ButtonClick, 0.7)
         setActiveTab(name)
     end)
 end
 
-setActiveTab("Movement")
+setActiveTab("Welcome")
 
--- Minimize behavior
 local minimized = false
 MinimizeButton.MouseButton1Click:Connect(function()
+    playSound(SoundIds.ButtonClick, 0.7)
     minimized = not minimized
     if minimized then
-        TweenService:Create(MainFrame, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-            Size = UDim2.new(0, 600, 0, 32)
-        }):Play()
+        TweenService:Create(MainFrame, TweenInfo.new(0.25), {Size = UDim2.new(0, 650, 0, 32)}):Play()
         ContentHolder.Visible = false
         Blur.Size = 0
     else
-        TweenService:Create(MainFrame, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-            Size = UDim2.new(0, 600, 0, 350)
-        }):Play()
+        TweenService:Create(MainFrame, TweenInfo.new(0.25), {Size = UDim2.new(0, 650, 0, 380)}):Play()
         ContentHolder.Visible = true
         Blur.Size = 10
     end
 end)
 
--- Close behavior
--- existing variables near top:
--- local uiVisible = true
+-- PATCHED CLOSE: hide GUI and allow RCtrl to reopen
+local uiVisible = true
 
 CloseButton.MouseButton1Click:Connect(function()
     playSound(SoundIds.ButtonClick, 0.7)
@@ -443,29 +414,17 @@ CloseButton.MouseButton1Click:Connect(function()
     Blur.Size = 0
 end)
 
--- Right Ctrl handler (keep, but make sure it uses uiVisible):
-UserInputService.InputBegan:Connect(function(input, gp)
-    if gp then return end
-    if input.KeyCode == Enum.KeyCode.RightControl then
-        uiVisible = not uiVisible
-        MainFrame.Visible = uiVisible
-        Blur.Size = uiVisible and 10 or 0
-    end
-end)
-
-
 --================================================--
--- TOGGLE & SLIDER UI HELPERS
+-- TOGGLE & SLIDER HELPERS
 --================================================--
-
 local function createToggle(parent, labelText, defaultState, callback)
     local container = Instance.new("Frame")
-    container.Size = UDim2.new(1, -20, 0, 28)
+    container.Size = UDim2.new(1, -20, 0, 30)
     container.BackgroundTransparency = 1
     container.Parent = parent
 
     local label = Instance.new("TextLabel")
-    label.Size = UDim2.new(0.7, 0, 1, 0)
+    label.Size = UDim2.new(0.6, 0, 1, 0)
     label.BackgroundTransparency = 1
     label.Text = labelText
     label.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -475,8 +434,8 @@ local function createToggle(parent, labelText, defaultState, callback)
     label.Parent = container
 
     local button = Instance.new("TextButton")
-    button.Size = UDim2.new(0.3, -10, 1, 0)
-    button.Position = UDim2.new(0.7, 10, 0, 0)
+    button.Size = UDim2.new(0.4, -10, 1, 0)
+    button.Position = UDim2.new(0.6, 10, 0, 0)
     button.BackgroundColor3 = defaultState and Color3.fromRGB(40, 120, 60) or Color3.fromRGB(60, 60, 60)
     button.Text = defaultState and "ON" or "OFF"
     button.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -491,6 +450,7 @@ local function createToggle(parent, labelText, defaultState, callback)
     local state = defaultState
 
     button.MouseButton1Click:Connect(function()
+        playSound(SoundIds.ButtonClick, 0.7)
         state = not state
         button.Text = state and "ON" or "OFF"
         local targetColor = state and Color3.fromRGB(40, 120, 60) or Color3.fromRGB(60, 60, 60)
@@ -505,12 +465,12 @@ end
 
 local function createSlider(parent, labelText, minValue, maxValue, defaultValue, callback)
     local container = Instance.new("Frame")
-    container.Size = UDim2.new(1, -20, 0, 40)
+    container.Size = UDim2.new(1, -20, 0, 50)
     container.BackgroundTransparency = 1
     container.Parent = parent
 
     local label = Instance.new("TextLabel")
-    label.Size = UDim2.new(0.5, 0, 0.5, 0)
+    label.Size = UDim2.new(1, 0, 0.5, 0)
     label.BackgroundTransparency = 1
     label.Text = labelText .. " (" .. tostring(defaultValue) .. ")"
     label.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -582,188 +542,439 @@ local function createSlider(parent, labelText, minValue, maxValue, defaultValue,
 end
 
 --================================================--
--- WELCOME
+-- KEY SYSTEM
 --================================================--
+local KeyFrame = Instance.new("Frame")
+KeyFrame.Name = "KeyFrame"
+KeyFrame.Size = UDim2.new(0, 300, 0, 150)
+KeyFrame.Position = UDim2.new(0.5, -150, 0.5, -75)
+KeyFrame.BackgroundColor3 = Color3.fromRGB(10, 10, 15)
+KeyFrame.BackgroundTransparency = 0.1
+KeyFrame.BorderSizePixel = 0
+KeyFrame.Active = true
+KeyFrame.Parent = ScreenGui
 
-local welcomeFrame = ContentFrames["Welcome"]
+local KeyCorner = Instance.new("UICorner")
+KeyCorner.CornerRadius = UDim.new(0, 12)
+KeyCorner.Parent = KeyFrame
 
-local welcomeLabel = Instance.new("TextLabel")
-welcomeLabel.Size = UDim2.new(1, -20, 0, 40)
-welcomeLabel.Position = UDim2.new(0, 10, 0, 10)
-welcomeLabel.BackgroundTransparency = 1
-welcomeLabel.Text = "Hello, " .. LocalPlayer.Name
-welcomeLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-welcomeLabel.Font = Enum.Font.GothamBold
-welcomeLabel.TextSize = 24
-welcomeLabel.TextXAlignment = Enum.TextXAlignment.Left
-welcomeLabel.Parent = welcomeFrame
+local KeyStroke = Instance.new("UIStroke")
+KeyStroke.Thickness = 2
+KeyStroke.Color = Color3.fromRGB(255, 255, 255)
+KeyStroke.Parent = KeyFrame
+animateRainbowStroke(KeyStroke)
 
-local versionLabel = Instance.new("TextLabel")
-versionLabel.Size = UDim2.new(1, -20, 0, 24)
-versionLabel.Position = UDim2.new(0, 10, 0, 50)
-versionLabel.BackgroundTransparency = 1
-versionLabel.Text = "Nuclear Labs Client HUD v2.5"
-versionLabel.TextColor3 = Color3.fromRGB(180, 180, 200)
-versionLabel.Font = Enum.Font.Gotham
-versionLabel.TextSize = 16
-versionLabel.TextXAlignment = Enum.TextXAlignment.Left
-versionLabel.Parent = welcomeFrame
+local KeyLabel = Instance.new("TextLabel")
+KeyLabel.Size = UDim2.new(1, 0, 0, 40)
+KeyLabel.Position = UDim2.new(0, 0, 0, 10)
+KeyLabel.BackgroundTransparency = 1
+KeyLabel.Text = "Enter Access Key"
+KeyLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+KeyLabel.Font = Enum.Font.GothamBold
+KeyLabel.TextSize = 18
+KeyLabel.Parent = KeyFrame
 
-local infoLabel = Instance.new("TextLabel")
-infoLabel.Size = UDim2.new(1, -20, 0, 60)
-infoLabel.Position = UDim2.new(0, 10, 0, 80)
-infoLabel.BackgroundTransparency = 1
-infoLabel.Text = "Use the tabs on the left to access Movement, Entity, Troll, Visual, Vehicle, Physics, Utility, ESP, and Options."
-infoLabel.TextWrapped = true
-infoLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
-infoLabel.Font = Enum.Font.Gotham
-infoLabel.TextSize = 14
-infoLabel.TextXAlignment = Enum.TextXAlignment.Left
-infoLabel.Parent = welcomeFrame
+local KeyBox = Instance.new("TextBox")
+KeyBox.Size = UDim2.new(0.8, 0, 0, 32)
+KeyBox.Position = UDim2.new(0.1, 0, 0, 60)
+KeyBox.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+KeyBox.PlaceholderText = "Key..."
+KeyBox.Text = ""
+KeyBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+KeyBox.Font = Enum.Font.Gotham
+KeyBox.TextSize = 14
+KeyBox.Parent = KeyFrame
 
+local KeyBoxCorner = Instance.new("UICorner")
+KeyBoxCorner.CornerRadius = UDim.new(0, 8)
+KeyBoxCorner.Parent = KeyBox
 
---================================================--
--- OPTIONS
---================================================--
+local KeyStatus = Instance.new("TextLabel")
+KeyStatus.Size = UDim2.new(1, 0, 0, 24)
+KeyStatus.Position = UDim2.new(0, 0, 0, 100)
+KeyStatus.BackgroundTransparency = 1
+KeyStatus.Text = ""
+KeyStatus.TextColor3 = Color3.fromRGB(255, 255, 255)
+KeyStatus.Font = Enum.Font.GothamBold
+KeyStatus.TextSize = 16
+KeyStatus.Parent = KeyFrame
 
-local function createSoundOption(parent, labelText, keyName)
-    local container = Instance.new("Frame")
-    container.Size = UDim2.new(1, -20, 0, 60)
-    container.BackgroundTransparency = 1
-    container.Parent = parent
+local KeyButton = Instance.new("TextButton")
+KeyButton.Size = UDim2.new(0.5, 0, 0, 28)
+KeyButton.Position = UDim2.new(0.25, 0, 0, 120)
+KeyButton.BackgroundColor3 = Color3.fromRGB(40, 40, 60)
+KeyButton.Text = "Submit"
+KeyButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+KeyButton.Font = Enum.Font.GothamBold
+KeyButton.TextSize = 14
+KeyButton.Parent = KeyFrame
 
-    local label = Instance.new("TextLabel")
-    label.Size = UDim2.new(1, 0, 0, 20)
-    label.BackgroundTransparency = 1
-    label.Text = labelText .. " (" .. SoundIds[keyName] .. ")"
-    label.TextColor3 = Color3.fromRGB(255, 255, 255)
-    label.Font = Enum.Font.Gotham
-    label.TextSize = 14
-    label.TextXAlignment = Enum.TextXAlignment.Left
-    label.Parent = container
+local KeyButtonCorner = Instance.new("UICorner")
+KeyButtonCorner.CornerRadius = UDim.new(0, 8)
+KeyButtonCorner.Parent = KeyButton
 
-    local input = Instance.new("TextBox")
-    input.Size = UDim2.new(0.6, 0, 0, 24)
-    input.Position = UDim2.new(0, 0, 0, 26)
-    input.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
-    input.TextColor3 = Color3.fromRGB(255, 255, 255)
-    input.Font = Enum.Font.Gotham
-    input.TextSize = 14
-    input.PlaceholderText = "rbxassetid://ID or full asset id"
-    input.Text = SoundIds[keyName]
-    input.Parent = container
+MainFrame.Visible = false
+Blur.Size = 0
 
-    local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 6)
-    corner.Parent = input
-
-    local applyBtn = Instance.new("TextButton")
-    applyBtn.Size = UDim2.new(0.18, 0, 0, 24)
-    applyBtn.Position = UDim2.new(0.62, 4, 0, 26)
-    applyBtn.BackgroundColor3 = Color3.fromRGB(40, 80, 40)
-    applyBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    applyBtn.Font = Enum.Font.GothamBold
-    applyBtn.TextSize = 14
-    applyBtn.Text = "Apply"
-    applyBtn.Parent = container
-
-    local aCorner = Instance.new("UICorner")
-    aCorner.CornerRadius = UDim.new(0, 6)
-    aCorner.Parent = applyBtn
-
-    local testBtn = Instance.new("TextButton")
-    testBtn.Size = UDim2.new(0.18, 0, 0, 24)
-    testBtn.Position = UDim2.new(0.82, 4, 0, 26)
-    testBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 80)
-    testBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    testBtn.Font = Enum.Font.GothamBold
-    testBtn.TextSize = 14
-    testBtn.Text = "Test"
-    testBtn.Parent = container
-
-    local tCorner = Instance.new("UICorner")
-    tCorner.CornerRadius = UDim.new(0, 6)
-    tCorner.Parent = testBtn
-
-    applyBtn.MouseButton1Click:Connect(function()
-        playSound(SoundIds.ButtonClick, 0.7)
-        SoundIds[keyName] = input.Text
-        label.Text = labelText .. " (" .. SoundIds[keyName] .. ")"
-        notify("Options", labelText .. " sound updated", 2)
-    end)
-
-    testBtn.MouseButton1Click:Connect(function()
-        playSound(SoundIds.ButtonClick, 0.7)
-        playSound(SoundIds[keyName], 1)
-    end)
-end
-
-local optFrame = ContentFrames["Options"]
-
-createSoundOption(optFrame, "Wrong Key", "WrongKey")
-createSoundOption(optFrame, "Correct Key", "CorrectKey")
-createSoundOption(optFrame, "Button Click", "ButtonClick")
-createSoundOption(optFrame, "Notification", "Notification")
-createSoundOption(optFrame, "Troll Fail", "TrollFail")
-createSoundOption(optFrame, "Troll Success", "TrollSuccess")
-
-local currentTheme = "DarkGlass"
-
-local function applyTheme(themeName)
-    currentTheme = themeName
-    if themeName == "DarkGlass" then
-        MainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
-        MainFrame.BackgroundTransparency = 0.25
-    elseif themeName == "Neon" then
-        MainFrame.BackgroundColor3 = Color3.fromRGB(10, 10, 20)
-        MainFrame.BackgroundTransparency = 0.15
-    elseif themeName == "RedBlack" then
-        MainFrame.BackgroundColor3 = Color3.fromRGB(25, 5, 5)
-        MainFrame.BackgroundTransparency = 0.2
-    elseif themeName == "Vaporwave" then
-        MainFrame.BackgroundColor3 = Color3.fromRGB(40, 10, 60)
-        MainFrame.BackgroundTransparency = 0.2
+local function keyAccessAnimation(success)
+    if success then
+        KeyStatus.Text = "Access Granted"
+        KeyStatus.TextColor3 = Color3.fromRGB(80, 200, 80)
+        TweenService:Create(KeyFrame, TweenInfo.new(0.3), {BackgroundColor3 = Color3.fromRGB(20, 40, 20)}):Play()
+        playSound(SoundIds.CorrectKey, 1)
+    else
+        KeyStatus.Text = "Access Denied"
+        KeyStatus.TextColor3 = Color3.fromRGB(200, 80, 80)
+        TweenService:Create(KeyFrame, TweenInfo.new(0.3), {BackgroundColor3 = Color3.fromRGB(40, 20, 20)}):Play()
+        playSound(SoundIds.WrongKey, 1)
     end
-    notify("Options", "Theme set to " .. themeName, 2)
 end
 
-local function createThemeButton(parent, name)
-    local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(1, -20, 0, 26)
-    btn.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
-    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    btn.Font = Enum.Font.GothamBold
-    btn.TextSize = 14
-    btn.Text = "Theme: " .. name
-    btn.Parent = parent
+KeyButton.MouseButton1Click:Connect(function()
+    playSound(SoundIds.ButtonClick, 0.7)
+    local key = KeyBox.Text
+    if key == "nuclear_labs_AFO" then
+        keyAccessAnimation(true)
+        notify("Nuclear Labs", "Access Granted", 3)
+        wait(0.5)
+        TweenService:Create(KeyFrame, TweenInfo.new(0.3), {BackgroundTransparency = 1}):Play()
+        wait(0.3)
+        KeyFrame:Destroy()
+        MainFrame.Visible = true
+        uiVisible = true
+        Blur.Size = 10
+    else
+        keyAccessAnimation(false)
+        notify("Nuclear Labs", "Access Denied", 3)
+        local flashTween = TweenService:Create(KeyFrame, TweenInfo.new(0.15), {BackgroundColor3 = Color3.fromRGB(80, 20, 20)})
+        flashTween:Play()
+        flashTween.Completed:Wait()
+        TweenService:Create(KeyFrame, TweenInfo.new(0.15), {BackgroundColor3 = Color3.fromRGB(10, 10, 15)}):Play()
+    end
+end)
 
-    local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 6)
-    corner.Parent = btn
-
-    btn.MouseButton1Click:Connect(function()
-        playSound(SoundIds.ButtonClick, 0.7)
-        applyTheme(name)
-    end)
+--================================================--
+-- UI TOGGLE (Right Ctrl)
+--================================================--
+local function setUIVisible(state)
+    uiVisible = state
+    MainFrame.Visible = state
+    Blur.Size = state and 10 or 0
 end
 
-local themeLabel = Instance.new("TextLabel")
-themeLabel.Size = UDim2.new(1, -20, 0, 20)
-themeLabel.BackgroundTransparency = 1
-themeLabel.Text = "Themes"
-themeLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-themeLabel.Font = Enum.Font.GothamBold
-themeLabel.TextSize = 16
-themeLabel.TextXAlignment = Enum.TextXAlignment.Left
-themeLabel.Parent = optFrame
+UserInputService.InputBegan:Connect(function(input, gp)
+    if gp then return end
+    if input.KeyCode == Enum.KeyCode.RightControl then
+        setUIVisible(not uiVisible)
+    end
+end)
 
-createThemeButton(optFrame, "DarkGlass")
-createThemeButton(optFrame, "Neon")
-createThemeButton(optFrame, "RedBlack")
-createThemeButton(optFrame, "Vaporwave")
+--================================================--
+-- SEARCH FILTER
+--================================================--
+SearchBox:GetPropertyChangedSignal("Text"):Connect(function()
+    local query = SearchBox.Text:lower()
+    for _, frame in pairs(ContentFrames) do
+        for _, child in ipairs(frame:GetChildren()) do
+            if child:IsA("Frame") then
+                local label = child:FindFirstChildOfClass("TextLabel")
+                if label then
+                    local visible = query == "" or label.Text:lower():find(query, 1, true) ~= nil
+                    child.Visible = visible
+                end
+            end
+        end
+    end
+end)
 
+--================================================--
+-- WELCOME TAB
+--================================================--
+do
+    local welcomeFrame = ContentFrames["Welcome"]
 
--- Player selector UI
+    local welcomeLabel = Instance.new("TextLabel")
+    welcomeLabel.Size = UDim2.new(1, -20, 0, 40)
+    welcomeLabel.Position = UDim2.new(0, 10, 0, 10)
+    welcomeLabel.BackgroundTransparency = 1
+    welcomeLabel.Text = "Hello, " .. LocalPlayer.Name
+    welcomeLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    welcomeLabel.Font = Enum.Font.GothamBold
+    welcomeLabel.TextSize = 24
+    welcomeLabel.TextXAlignment = Enum.TextXAlignment.Left
+    welcomeLabel.Parent = welcomeFrame
+
+    local versionLabel = Instance.new("TextLabel")
+    versionLabel.Size = UDim2.new(1, -20, 0, 24)
+    versionLabel.Position = UDim2.new(0, 10, 0, 50)
+    versionLabel.BackgroundTransparency = 1
+    versionLabel.Text = "Nuclear Labs Client HUD v2.5"
+    versionLabel.TextColor3 = Color3.fromRGB(180, 180, 200)
+    versionLabel.Font = Enum.Font.Gotham
+    versionLabel.TextSize = 16
+    versionLabel.TextXAlignment = Enum.TextXAlignment.Left
+    versionLabel.Parent = welcomeFrame
+
+    local infoLabel = Instance.new("TextLabel")
+    infoLabel.Size = UDim2.new(1, -20, 0, 60)
+    infoLabel.Position = UDim2.new(0, 10, 0, 80)
+    infoLabel.BackgroundTransparency = 1
+    infoLabel.Text = "Use the tabs on the left to access Movement, Entity, Troll, Visual, Vehicle, Physics, Utility, ESP, and Options."
+    infoLabel.TextWrapped = true
+    infoLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+    infoLabel.Font = Enum.Font.Gotham
+    infoLabel.TextSize = 14
+    infoLabel.TextXAlignment = Enum.TextXAlignment.Left
+    infoLabel.Parent = welcomeFrame
+end
+
+--================================================--
+-- MOVEMENT
+--================================================--
+local flyConnection
+local flySpeed = 60
+
+local function setFlyEnabled(enabled)
+    MovementState.Fly = enabled
+    if enabled then
+        notify("Movement", "Fly enabled", 2)
+        if flyConnection then flyConnection:Disconnect() end
+        flyConnection = RunService.RenderStepped:Connect(function(dt)
+            local char = safeGetCharacter()
+            local root = getRoot(char)
+            if not root then return end
+
+            local seat = getVehicleSeat()
+            local moveTarget = seat or root
+
+            local camCF = Camera.CFrame
+            local lookVector = camCF.LookVector
+            local upVector = camCF.UpVector
+
+            moveTarget.CFrame = CFrame.new(moveTarget.Position, moveTarget.Position + lookVector)
+
+            local moveDir = Vector3.new(0, 0, 0)
+            if UserInputService:IsKeyDown(Enum.KeyCode.W) then
+                moveDir = moveDir + lookVector
+            end
+            if UserInputService:IsKeyDown(Enum.KeyCode.S) then
+                moveDir = moveDir - lookVector
+            end
+            if UserInputService:IsKeyDown(Enum.KeyCode.A) then
+                moveDir = moveDir - camCF.RightVector
+            end
+            if UserInputService:IsKeyDown(Enum.KeyCode.D) then
+                moveDir = moveDir + camCF.RightVector
+            end
+            if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
+                moveDir = moveDir + upVector
+            end
+            if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then
+                moveDir = moveDir - upVector
+            end
+
+            if moveDir.Magnitude > 0 then
+                moveDir = moveDir.Unit * flySpeed * dt
+                moveTarget.CFrame = moveTarget.CFrame + moveDir
+            end
+        end)
+    else
+        if flyConnection then flyConnection:Disconnect() end
+        flyConnection = nil
+        notify("Movement", "Fly disabled", 2)
+    end
+end
+
+local noclipConnection
+local function setNoclipEnabled(enabled)
+    MovementState.Noclip = enabled
+    local char = safeGetCharacter()
+    if enabled then
+        notify("Movement", "Noclip enabled", 2)
+        if noclipConnection then noclipConnection:Disconnect() end
+        noclipConnection = RunService.Stepped:Connect(function()
+            char = safeGetCharacter()
+            for _, part in ipairs(char:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    part.CanCollide = false
+                end
+            end
+        end)
+    else
+        notify("Movement", "Noclip disabled", 2)
+        if noclipConnection then noclipConnection:Disconnect() end
+        noclipConnection = nil
+        for _, part in ipairs(char:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.CanCollide = true
+            end
+        end
+    end
+end
+
+UserInputService.JumpRequest:Connect(function()
+    if MovementState.InfiniteJump then
+        local humanoid = getHumanoid()
+        if humanoid then
+            humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+        end
+    end
+end)
+
+local dashCooldown = 0.5
+local lastDash = 0
+local function performDash()
+    local now = tick()
+    if now - lastDash < dashCooldown then return end
+    lastDash = now
+    local root = getRoot()
+    if not root then return end
+    local dashVector = Camera.CFrame.LookVector * 80
+    root.Velocity = dashVector
+    playSound(SoundIds.TrollSuccess, 0.8)
+end
+
+UserInputService.InputBegan:Connect(function(input, gp)
+    if gp then return end
+    if input.KeyCode == Enum.KeyCode.Q and MovementState.Dash then
+        performDash()
+    end
+end)
+
+local function setClickTeleportEnabled(enabled)
+    MovementState.ClickTeleport = enabled
+    notify("Movement", "Click Teleport " .. (enabled and "enabled" or "disabled"), 2)
+end
+
+UserInputService.InputBegan:Connect(function(input, gp)
+    if gp then return end
+    if MovementState.ClickTeleport and input.UserInputType == Enum.UserInputType.MouseButton1 then
+        local mousePos = input.Position
+        local ray = Camera:ScreenPointToRay(mousePos.X, mousePos.Y)
+        local params = RaycastParams.new()
+        params.FilterType = Enum.RaycastFilterType.Blacklist
+        params.FilterDescendantsInstances = {safeGetCharacter()}
+        local result = Workspace:Raycast(ray.Origin, ray.Direction * 500, params)
+        if result then
+            local root = getRoot()
+            if root then
+                root.CFrame = CFrame.new(result.Position + Vector3.new(0, 3, 0))
+                playSound(SoundIds.TrollSuccess, 0.8)
+            end
+        else
+            playSound(SoundIds.TrollFail, 0.8)
+        end
+    end
+end)
+
+local function setWalkSpeed(value)
+    MovementState.WalkSpeed = value
+    local humanoid = getHumanoid()
+    if humanoid then
+        humanoid.WalkSpeed = value
+    end
+end
+
+local function setJumpPower(value)
+    MovementState.JumpPower = value
+    local humanoid = getHumanoid()
+    if humanoid then
+        humanoid.JumpPower = value
+    end
+end
+
+local godModeConnection
+local function setGodModeEnabled(enabled)
+    MovementState.GodMode = enabled
+    if enabled then
+        notify("Movement", "God Mode enabled", 2)
+        if godModeConnection then godModeConnection:Disconnect() end
+        godModeConnection = RunService.Heartbeat:Connect(function()
+            local humanoid = getHumanoid()
+            if humanoid then
+                humanoid.Health = humanoid.MaxHealth
+            end
+        end)
+    else
+        notify("Movement", "God Mode disabled", 2)
+        if godModeConnection then godModeConnection:Disconnect() end
+        godModeConnection = nil
+    end
+end
+
+createToggle(ContentFrames["Movement"], "Fly", false, setFlyEnabled)
+createToggle(ContentFrames["Movement"], "Noclip", false, setNoclipEnabled)
+createToggle(ContentFrames["Movement"], "Infinite Jump", false, function(state)
+    MovementState.InfiniteJump = state
+    notify("Movement", "Infinite Jump " .. (state and "enabled" or "disabled"), 2)
+end)
+createToggle(ContentFrames["Movement"], "Dash (Q)", false, function(state)
+    MovementState.Dash = state
+    notify("Movement", "Dash " .. (state and "enabled" or "disabled"), 2)
+end)
+createToggle(ContentFrames["Movement"], "Click Teleport", false, setClickTeleportEnabled)
+createToggle(ContentFrames["Movement"], "God Mode", false, setGodModeEnabled)
+
+createSlider(ContentFrames["Movement"], "WalkSpeed", 16, 200, 16, setWalkSpeed)
+createSlider(ContentFrames["Movement"], "JumpPower", 50, 200, 50, setJumpPower)
+
+--================================================--
+-- ENTITY (Pathfinding + PLAYER SELECTOR)
+--================================================--
+local entityModel
+local entitySoundLoop
+local entitySpeed = 10
+local entityModeConnection
+local entityFlickerConnection
+local entitySpeedIncreaseConnection
+
+local function createEntityModel()
+    if entityModel and entityModel.Parent then return entityModel end
+    entityModel = Instance.new("Model")
+    entityModel.Name = "NuclearEntity"
+    entityModel.Parent = Workspace
+
+    local part = Instance.new("Part")
+    part.Name = "Core"
+    part.Size = Vector3.new(2, 4, 2)
+    part.Color = Color3.fromRGB(80, 0, 80)
+    part.Material = Enum.Material.Neon
+    part.Anchored = false
+    part.CanCollide = false
+    part.Parent = entityModel
+
+    local humanoid = Instance.new("Humanoid")
+    humanoid.Parent = entityModel
+
+    entityModel.PrimaryPart = part
+
+    entitySoundLoop = playSound(SoundIds.Notification, 0.3, part)
+    entitySoundLoop.Looped = true
+
+    return entityModel
+end
+
+local function getTargetCharacter()
+    if not EntityState.TargetPlayer then return nil end
+    return EntityState.TargetPlayer.Character
+end
+
+local function pathfindTo(targetPos)
+    local entity = createEntityModel()
+    local path = PathfindingService:CreatePath()
+    path:ComputeAsync(entity.PrimaryPart.Position, targetPos)
+    if path.Status == Enum.PathStatus.Success then
+        local waypoints = path:GetWaypoints()
+        for _, wp in ipairs(waypoints) do
+            local duration = (wp.Position - entity.PrimaryPart.Position).Magnitude / entitySpeed
+            local tween = TweenService:Create(entity.PrimaryPart, TweenInfo.new(duration, Enum.EasingStyle.Linear), {CFrame = CFrame.new(wp.Position)})
+            tween:Play()
+            tween.Completed:Wait()
+        end
+    end
+end
+
+-- PLAYER SELECTOR UI
 local function createPlayerSelector(parent)
     local container = Instance.new("Frame")
     container.Size = UDim2.new(1, -20, 0, 60)
@@ -849,403 +1060,7 @@ local function createPlayerSelector(parent)
     end)
 end
 
--- call this in Entity tab setup:
 createPlayerSelector(ContentFrames["Entity"])
-
-
---================================================--
--- KEY SYSTEM
---================================================--
-
-local KeyFrame = Instance.new("Frame")
-KeyFrame.Name = "KeyFrame"
-KeyFrame.Size = UDim2.new(0, 300, 0, 150)
-KeyFrame.Position = UDim2.new(0.5, -150, 0.5, -75)
-KeyFrame.BackgroundColor3 = Color3.fromRGB(10, 10, 15)
-KeyFrame.BackgroundTransparency = 0.1
-KeyFrame.BorderSizePixel = 0
-KeyFrame.Active = true
-KeyFrame.Parent = ScreenGui
-
-local KeyCorner = Instance.new("UICorner")
-KeyCorner.CornerRadius = UDim.new(0, 12)
-KeyCorner.Parent = KeyFrame
-
-local KeyStroke = Instance.new("UIStroke")
-KeyStroke.Thickness = 2
-KeyStroke.Color = Color3.fromRGB(255, 255, 255)
-KeyStroke.Parent = KeyFrame
-
-animateRainbowStroke(KeyStroke)
-
-local KeyLabel = Instance.new("TextLabel")
-KeyLabel.Size = UDim2.new(1, 0, 0, 40)
-KeyLabel.Position = UDim2.new(0, 0, 0, 10)
-KeyLabel.BackgroundTransparency = 1
-KeyLabel.Text = "Enter Access Key"
-KeyLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-KeyLabel.Font = Enum.Font.GothamBold
-KeyLabel.TextSize = 18
-KeyLabel.Parent = KeyFrame
-
-local KeyBox = Instance.new("TextBox")
-KeyBox.Size = UDim2.new(0.8, 0, 0, 32)
-KeyBox.Position = UDim2.new(0.1, 0, 0, 60)
-KeyBox.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
-KeyBox.PlaceholderText = "Key..."
-KeyBox.Text = ""
-KeyBox.TextColor3 = Color3.fromRGB(255, 255, 255)
-KeyBox.Font = Enum.Font.Gotham
-KeyBox.TextSize = 14
-KeyBox.Parent = KeyFrame
-
-local KeyBoxCorner = Instance.new("UICorner")
-KeyBoxCorner.CornerRadius = UDim.new(0, 8)
-KeyBoxCorner.Parent = KeyBox
-
-local KeyStatus = Instance.new("TextLabel")
-KeyStatus.Size = UDim2.new(1, 0, 0, 24)
-KeyStatus.Position = UDim2.new(0, 0, 0, 100)
-KeyStatus.BackgroundTransparency = 1
-KeyStatus.Text = ""
-KeyStatus.TextColor3 = Color3.fromRGB(255, 255, 255)
-KeyStatus.Font = Enum.Font.GothamBold
-KeyStatus.TextSize = 16
-KeyStatus.Parent = KeyFrame
-
-local KeyButton = Instance.new("TextButton")
-KeyButton.Size = UDim2.new(0.5, 0, 0, 28)
-KeyButton.Position = UDim2.new(0.25, 0, 0, 120)
-KeyButton.BackgroundColor3 = Color3.fromRGB(40, 40, 60)
-KeyButton.Text = "Submit"
-KeyButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-KeyButton.Font = Enum.Font.GothamBold
-KeyButton.TextSize = 14
-KeyButton.Parent = KeyFrame
-
-local KeyButtonCorner = Instance.new("UICorner")
-KeyButtonCorner.CornerRadius = UDim.new(0, 8)
-KeyButtonCorner.Parent = KeyButton
-
-MainFrame.Visible = false
-Blur.Size = 0
-
-local function keyAccessAnimation(success)
-    if success then
-        KeyStatus.Text = "Access Granted"
-        KeyStatus.TextColor3 = Color3.fromRGB(80, 200, 80)
-        TweenService:Create(KeyFrame, TweenInfo.new(0.3), {BackgroundColor3 = Color3.fromRGB(20, 40, 20)}):Play()
-    else
-        KeyStatus.Text = "Access Denied"
-        KeyStatus.TextColor3 = Color3.fromRGB(200, 80, 80)
-        TweenService:Create(KeyFrame, TweenInfo.new(0.3), {BackgroundColor3 = Color3.fromRGB(40, 20, 20)}):Play()
-    end
-end
-
-KeyButton.MouseButton1Click:Connect(function()
-    local key = KeyBox.Text
-    if key == "nuclear_labs_AFO" then
-        keyAccessAnimation(true)
-        notify("Nuclear Labs", "Access Granted", 3)
-        wait(0.5)
-        TweenService:Create(KeyFrame, TweenInfo.new(0.3), {BackgroundTransparency = 1}):Play()
-        wait(0.3)
-        KeyFrame:Destroy()
-        MainFrame.Visible = true
-        Blur.Size = 10
-    else
-        keyAccessAnimation(false)
-        notify("Nuclear Labs", "Access Denied", 3)
-        local flashTween = TweenService:Create(KeyFrame, TweenInfo.new(0.15), {BackgroundColor3 = Color3.fromRGB(80, 20, 20)})
-        flashTween:Play()
-        flashTween.Completed:Wait()
-        TweenService:Create(KeyFrame, TweenInfo.new(0.15), {BackgroundColor3 = Color3.fromRGB(10, 10, 15)}):Play()
-    end
-end)
-
---================================================--
--- SEARCH FILTER (simple label-based filter)
---================================================--
-
-SearchBox:GetPropertyChangedSignal("Text"):Connect(function()
-    local query = SearchBox.Text:lower()
-    for _, frame in pairs(ContentFrames) do
-        for _, child in ipairs(frame:GetChildren()) do
-            if child:IsA("Frame") or child:IsA("TextButton") or child:IsA("TextLabel") then
-                local label = child:FindFirstChildOfClass("TextLabel")
-                if label then
-                    local visible = query == "" or label.Text:lower():find(query, 1, true) ~= nil
-                    child.Visible = visible
-                end
-            end
-        end
-    end
-end)
-
---================================================--
--- MOVEMENT
---================================================--
-
--- Fly implementation
-local flyConnection
-local flyVehicleConnection
-local flySpeed = 60
-
-local function setFlyEnabled(enabled)
-    MovementState.Fly = enabled
-    if enabled then
-        notify("Movement", "Fly enabled", 2)
-        local char = safeGetCharacter()
-        local root = getRoot(char)
-        if not root then return end
-
-        if flyConnection then flyConnection:Disconnect() end
-
-        flyConnection = RunService.RenderStepped:Connect(function(dt)
-            char = safeGetCharacter()
-            root = getRoot(char)
-            if not root then return end
-
-            local seat = getVehicleSeat()
-            local moveTarget = seat or root
-
-            local camCF = Camera.CFrame
-            local lookVector = camCF.LookVector
-            local upDown = camCF.UpVector
-
-            -- Rotate character/vehicle to face camera including pitch
-            moveTarget.CFrame = CFrame.new(moveTarget.Position, moveTarget.Position + lookVector)
-
-            local moveDir = Vector3.new(0, 0, 0)
-            if UserInputService:IsKeyDown(Enum.KeyCode.W) then
-                moveDir = moveDir + lookVector
-            end
-            if UserInputService:IsKeyDown(Enum.KeyCode.S) then
-                moveDir = moveDir - lookVector
-            end
-            if UserInputService:IsKeyDown(Enum.KeyCode.A) then
-                moveDir = moveDir - camCF.RightVector
-            end
-            if UserInputService:IsKeyDown(Enum.KeyCode.D) then
-                moveDir = moveDir + camCF.RightVector
-            end
-            if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
-                moveDir = moveDir + upDown
-            end
-            if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then
-                moveDir = moveDir - upDown
-            end
-
-            if moveDir.Magnitude > 0 then
-                moveDir = moveDir.Unit * flySpeed * dt
-                moveTarget.CFrame = moveTarget.CFrame + moveDir
-            end
-        end)
-    else
-        if flyConnection then flyConnection:Disconnect() end
-        flyConnection = nil
-        notify("Movement", "Fly disabled", 2)
-    end
-end
-
--- Noclip implementation
-local noclipConnection
-local function setNoclipEnabled(enabled)
-    MovementState.Noclip = enabled
-    local char = safeGetCharacter()
-    if enabled then
-        notify("Movement", "Noclip enabled", 2)
-        if noclipConnection then noclipConnection:Disconnect() end
-        noclipConnection = RunService.Stepped:Connect(function()
-            char = safeGetCharacter()
-            for _, part in ipairs(char:GetDescendants()) do
-                if part:IsA("BasePart") then
-                    part.CanCollide = false
-                end
-            end
-        end)
-    else
-        if noclipConnection then noclipConnection:Disconnect() end
-        noclipConnection = nil
-        notify("Movement", "Noclip disabled", 2)
-        for _, part in ipairs(char:GetDescendants()) do
-            if part:IsA("BasePart") then
-                part.CanCollide = true
-            end
-        end
-    end
-end
-
--- Infinite Jump
-local infiniteJumpEnabled = false
-UserInputService.JumpRequest:Connect(function()
-    if MovementState.InfiniteJump then
-        local humanoid = getHumanoid()
-        if humanoid then
-            humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
-        end
-    end
-end)
-
--- Dash
-local dashCooldown = 0.5
-local lastDash = 0
-local function performDash()
-    local now = tick()
-    if now - lastDash < dashCooldown then return end
-    lastDash = now
-    local char = safeGetCharacter()
-    local root = getRoot(char)
-    if not root then return end
-    local dashVector = Camera.CFrame.LookVector * 50
-    root.Velocity = dashVector
-end
-
-UserInputService.InputBegan:Connect(function(input, gp)
-    if gp then return end
-    if input.KeyCode == Enum.KeyCode.Q and MovementState.Dash then
-        performDash()
-    end
-end)
-
--- Click Teleport
-local function setClickTeleportEnabled(enabled)
-    MovementState.ClickTeleport = enabled
-    if enabled then
-        notify("Movement", "Click Teleport enabled", 2)
-    else
-        notify("Movement", "Click Teleport disabled", 2)
-    end
-end
-
-UserInputService.InputBegan:Connect(function(input, gp)
-    if gp then return end
-    if MovementState.ClickTeleport and input.UserInputType == Enum.UserInputType.MouseButton1 then
-        local mousePos = input.Position
-        local ray = Camera:ScreenPointToRay(mousePos.X, mousePos.Y)
-        local raycastParams = RaycastParams.new()
-        raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
-        raycastParams.FilterDescendantsInstances = {safeGetCharacter()}
-        local result = Workspace:Raycast(ray.Origin, ray.Direction * 500, raycastParams)
-        if result then
-            local root = getRoot()
-            if root then
-                root.CFrame = CFrame.new(result.Position + Vector3.new(0, 3, 0))
-            end
-        end
-    end
-end)
-
--- WalkSpeed & JumpPower sliders
-local function setWalkSpeed(value)
-    MovementState.WalkSpeed = value
-    local humanoid = getHumanoid()
-    if humanoid then
-        humanoid.WalkSpeed = value
-    end
-end
-
-local function setJumpPower(value)
-    MovementState.JumpPower = value
-    local humanoid = getHumanoid()
-    if humanoid then
-        humanoid.JumpPower = value
-    end
-end
-
--- God Mode (heal every 0.1 seconds)
-local godModeConnection
-local function setGodModeEnabled(enabled)
-    MovementState.GodMode = enabled
-    if enabled then
-        notify("Movement", "God Mode enabled", 2)
-        if godModeConnection then godModeConnection:Disconnect() end
-        godModeConnection = RunService.Heartbeat:Connect(function()
-            local humanoid = getHumanoid()
-            if humanoid then
-                humanoid.Health = humanoid.MaxHealth
-            end
-        end)
-    else
-        notify("Movement", "God Mode disabled", 2)
-        if godModeConnection then godModeConnection:Disconnect() end
-        godModeConnection = nil
-    end
-end
-
--- Movement UI
-createToggle(ContentFrames["Movement"], "Fly", false, setFlyEnabled)
-createToggle(ContentFrames["Movement"], "Noclip", false, setNoclipEnabled)
-createToggle(ContentFrames["Movement"], "Infinite Jump", false, function(state)
-    MovementState.InfiniteJump = state
-    notify("Movement", "Infinite Jump " .. (state and "enabled" or "disabled"), 2)
-end)
-createToggle(ContentFrames["Movement"], "Dash (Q)", false, function(state)
-    MovementState.Dash = state
-    notify("Movement", "Dash " .. (state and "enabled" or "disabled"), 2)
-end)
-createToggle(ContentFrames["Movement"], "Click Teleport", false, setClickTeleportEnabled)
-createToggle(ContentFrames["Movement"], "God Mode", false, setGodModeEnabled)
-
-createSlider(ContentFrames["Movement"], "WalkSpeed", 16, 200, 16, setWalkSpeed)
-createSlider(ContentFrames["Movement"], "JumpPower", 50, 200, 50, setJumpPower)
-
---================================================--
--- ENTITY (Pathfinding-based behaviors)
---================================================--
-
-local entityModel
-local entityConnection
-local entitySpeed = 12
-local entityTransparencyFlickerConnection
-local entitySound
-
-local function createEntityModel()
-    if entityModel and entityModel.Parent then return entityModel end
-    entityModel = Instance.new("Model")
-    entityModel.Name = "NuclearEntity"
-    entityModel.Parent = Workspace
-
-    local part = Instance.new("Part")
-    part.Name = "Core"
-    part.Size = Vector3.new(2, 4, 2)
-    part.Color = Color3.fromRGB(80, 0, 80)
-    part.Material = Enum.Material.Neon
-    part.Anchored = false
-    part.CanCollide = false
-    part.Parent = entityModel
-
-    local humanoid = Instance.new("Humanoid")
-    humanoid.Parent = entityModel
-
-    entityModel.PrimaryPart = part
-
-    entitySound = createSound(part, "rbxassetid://91244890", 0.4, true)
-
-    return entityModel
-end
-
-local function getTargetCharacter()
-    if not EntityState.TargetPlayer then return nil end
-    return EntityState.TargetPlayer.Character
-end
-
-local function pathfindToTarget(targetPos)
-    local entity = createEntityModel()
-    local path = PathfindingService:CreatePath()
-    path:ComputeAsync(entity.PrimaryPart.Position, targetPos)
-    if path.Status == Enum.PathStatus.Success then
-        local waypoints = path:GetWaypoints()
-        for _, wp in ipairs(waypoints) do
-            local dir = (wp.Position - entity.PrimaryPart.Position).Unit
-            local step = dir * entitySpeed
-            local duration = (wp.Position - entity.PrimaryPart.Position).Magnitude / entitySpeed
-            local tween = TweenService:Create(entity.PrimaryPart, TweenInfo.new(duration, Enum.EasingStyle.Linear), {CFrame = CFrame.new(wp.Position)})
-            tween:Play()
-            tween.Completed:Wait()
-        end
-    end
-end
 
 local function setFollowPlayerEnabled(enabled)
     EntityState.FollowPlayer = enabled
@@ -1254,21 +1069,21 @@ local function setFollowPlayerEnabled(enabled)
         if not EntityState.TargetPlayer then
             EntityState.TargetPlayer = getRandomPlayer(true)
         end
-        if entityConnection then entityConnection:Disconnect() end
-        entityConnection = RunService.Heartbeat:Connect(function()
+        if entityModeConnection then entityModeConnection:Disconnect() end
+        entityModeConnection = RunService.Heartbeat:Connect(function()
             local targetChar = getTargetCharacter()
             local entity = createEntityModel()
             if targetChar and entity then
                 local targetRoot = targetChar:FindFirstChild("HumanoidRootPart")
                 if targetRoot then
-                    pathfindToTarget(targetRoot.Position)
+                    pathfindTo(targetRoot.Position)
                 end
             end
         end)
     else
         notify("Entity", "Follow Player disabled", 2)
-        if entityConnection then entityConnection:Disconnect() end
-        entityConnection = nil
+        if entityModeConnection then entityModeConnection:Disconnect() end
+        entityModeConnection = nil
     end
 end
 
@@ -1279,27 +1094,24 @@ local function setHauntPlayerEnabled(enabled)
         if not EntityState.TargetPlayer then
             EntityState.TargetPlayer = getRandomPlayer(true)
         end
-        if entityConnection then entityConnection:Disconnect() end
-        entityConnection = RunService.Heartbeat:Connect(function()
+        if entityModeConnection then entityModeConnection:Disconnect() end
+        entityModeConnection = RunService.Heartbeat:Connect(function()
             local targetChar = getTargetCharacter()
             local entity = createEntityModel()
             if targetChar and entity then
                 local targetRoot = targetChar:FindFirstChild("HumanoidRootPart")
                 if targetRoot then
                     local offset = Vector3.new(math.random(-10, 10), math.random(2, 8), math.random(-10, 10))
-                    pathfindToTarget(targetRoot.Position + offset)
+                    pathfindTo(targetRoot.Position + offset)
                 end
             end
         end)
     else
         notify("Entity", "Haunt Player disabled", 2)
-        if entityConnection then entityConnection:Disconnect() end
-        entityConnection = nil
+        if entityModeConnection then entityModeConnection:Disconnect() end
+        entityModeConnection = nil
     end
 end
-
-local entityModeConnection
-local entitySpeedIncreaseConnection
 
 local function setEntityModeEnabled(enabled)
     EntityState.EntityMode = enabled
@@ -1311,8 +1123,8 @@ local function setEntityModeEnabled(enabled)
         local entity = createEntityModel()
         entitySpeed = 8
 
-        if entityTransparencyFlickerConnection then entityTransparencyFlickerConnection:Disconnect() end
-        entityTransparencyFlickerConnection = RunService.Heartbeat:Connect(function()
+        if entityFlickerConnection then entityFlickerConnection:Disconnect() end
+        entityFlickerConnection = RunService.Heartbeat:Connect(function()
             local part = entity.PrimaryPart
             if part then
                 part.Transparency = math.random() * 0.5
@@ -1334,31 +1146,26 @@ local function setEntityModeEnabled(enabled)
             local entityRoot = entity.PrimaryPart
             if not entityRoot then return end
 
-            -- Always look at target
             lookAt(entityRoot, targetRoot)
 
-            local hidden = not isPlayerLookingAt(entityRoot, EntityState.TargetPlayer)
+            local hidden = not isPlayerLookingAt(entityRoot)
             if hidden then
-                -- Move only when unseen
                 local offset = Vector3.new(math.random(-15, 15), math.random(2, 8), math.random(-15, 15))
-                pathfindToTarget(targetRoot.Position + offset)
-
-                -- Teleport occasionally when hidden
+                pathfindTo(targetRoot.Position + offset)
                 if math.random() < 0.05 then
                     entityRoot.CFrame = CFrame.new(targetRoot.Position + Vector3.new(math.random(-5, 5), math.random(2, 6), math.random(-5, 5)))
                 end
             else
-                -- Freeze while target looks at it
                 entityRoot.Velocity = Vector3.new(0, 0, 0)
             end
         end)
     else
         notify("Entity", "Entity Mode disabled", 2)
         if entityModeConnection then entityModeConnection:Disconnect() end
-        if entityTransparencyFlickerConnection then entityTransparencyFlickerConnection:Disconnect() end
+        if entityFlickerConnection then entityFlickerConnection:Disconnect() end
         if entitySpeedIncreaseConnection then entitySpeedIncreaseConnection:Disconnect() end
         entityModeConnection = nil
-        entityTransparencyFlickerConnection = nil
+        entityFlickerConnection = nil
         entitySpeedIncreaseConnection = nil
         if entityModel then
             entityModel:Destroy()
@@ -1372,14 +1179,164 @@ createToggle(ContentFrames["Entity"], "Haunt Player", false, setHauntPlayerEnabl
 createToggle(ContentFrames["Entity"], "Entity Mode", false, setEntityModeEnabled)
 
 --================================================--
--- TROLL
+-- TROLL (INCLUDING GRAB)
 --================================================--
+local spinConnection
+local function setSpinbotEnabled(enabled)
+    TrollState.Spinbot = enabled
+    if enabled then
+        notify("Troll", "Spinbot enabled", 2)
+        if spinConnection then spinConnection:Disconnect() end
+        spinConnection = RunService.RenderStepped:Connect(function(dt)
+            local root = getRoot()
+            if root then
+                root.CFrame = root.CFrame * CFrame.Angles(0, dt * 10, 0)
+            end
+        end)
+    else
+        notify("Troll", "Spinbot disabled", 2)
+        if spinConnection then spinConnection:Disconnect() end
+        spinConnection = nil
+    end
+end
 
+local orbitConnection
+local orbitRadius = 10
+local orbitSpeed = 2
+local function setOrbitPlayerEnabled(enabled)
+    TrollState.OrbitPlayer = enabled
+    if enabled then
+        notify("Troll", "Orbit Player enabled", 2)
+        if not EntityState.TargetPlayer then
+            EntityState.TargetPlayer = getRandomPlayer(true)
+        end
+        if orbitConnection then orbitConnection:Disconnect() end
+        orbitConnection = RunService.RenderStepped:Connect(function()
+            local root = getRoot()
+            local targetChar = getTargetCharacter()
+            if root and targetChar then
+                local targetRoot = targetChar:FindFirstChild("HumanoidRootPart")
+                if targetRoot then
+                    local t = tick() * orbitSpeed
+                    local offset = Vector3.new(math.cos(t) * orbitRadius, 3, math.sin(t) * orbitRadius)
+                    root.CFrame = CFrame.new(targetRoot.Position + offset, targetRoot.Position)
+                end
+            end
+        end)
+    else
+        notify("Troll", "Orbit Player disabled", 2)
+        if orbitConnection then orbitConnection:Disconnect() end
+        orbitConnection = nil
+    end
+end
+
+local function selfFling()
+    local root = getRoot()
+    if root then
+        root.Velocity = Vector3.new(0, 200, 0)
+        playSound(SoundIds.TrollSuccess, 0.8)
+        notify("Troll", "Self Fling executed", 2)
+    else
+        playSound(SoundIds.TrollFail, 0.8)
+    end
+end
+
+local function playerFling()
+    local target = EntityState.TargetPlayer or getRandomPlayer(true)
+    if target and target.Character then
+        local root = target.Character:FindFirstChild("HumanoidRootPart")
+        if root then
+            root.Velocity = Vector3.new(0, 200, 0)
+            playSound(SoundIds.TrollSuccess, 0.8)
+            notify("Troll", "Player Fling on " .. target.Name, 2)
+        else
+            playSound(SoundIds.TrollFail, 0.8)
+        end
+    else
+        playSound(SoundIds.TrollFail, 0.8)
+    end
+end
+
+local function fakeSystemMessage(msg)
+    notify("System", msg, 3)
+end
+
+local function fakeDisconnect()
+    fakeSystemMessage("You were disconnected from the game. (Fake)")
+end
+
+local function fakeJoin()
+    local target = getRandomPlayer(false)
+    if target then
+        fakeSystemMessage(target.Name .. " has joined the game. (Fake)")
+    else
+        playSound(SoundIds.TrollFail, 0.8)
+    end
+end
+
+local function fakeLeave()
+    local target = getRandomPlayer(false)
+    if target then
+        fakeSystemMessage(target.Name .. " has left the game. (Fake)")
+    else
+        playSound(SoundIds.TrollFail, 0.8)
+    end
+end
+
+local function cloneCharacter()
+    local char = safeGetCharacter()
+    local clone = char:Clone()
+    clone.Name = char.Name .. "_Clone"
+    clone.Parent = Workspace
+    local root = getRoot(char)
+    if root then
+        local cloneRoot = clone:FindFirstChild("HumanoidRootPart")
+        if cloneRoot then
+            cloneRoot.CFrame = root.CFrame * CFrame.new(0, 0, -5)
+        end
+    end
+    playSound(SoundIds.TrollSuccess, 0.8)
+    notify("Troll", "Character cloned", 2)
+end
+
+local confuseConnection
+local function setConfuseControlsEnabled(enabled)
+    TrollState.ConfuseControls = enabled
+    if enabled then
+        notify("Troll", "Confuse Controls enabled", 2)
+        if confuseConnection then confuseConnection:Disconnect() end
+        confuseConnection = RunService.RenderStepped:Connect(function()
+            local humanoid = getHumanoid()
+            if humanoid then
+                humanoid.WalkSpeed = MovementState.WalkSpeed
+            end
+        end)
+    else
+        notify("Troll", "Confuse Controls disabled", 2)
+        if confuseConnection then confuseConnection:Disconnect() end
+        confuseConnection = nil
+    end
+end
+
+local function randomTeleport()
+    local root = getRoot()
+    if not root then
+        playSound(SoundIds.TrollFail, 0.8)
+        return
+    end
+    local randomPos = root.Position + Vector3.new(math.random(-100, 100), math.random(10, 50), math.random(-100, 100))
+    root.CFrame = CFrame.new(randomPos)
+    playSound(SoundIds.TrollSuccess, 0.8)
+    notify("Troll", "Random Teleport executed", 2)
+end
+
+-- GRAB FUNCTION
 local grabConnection
 local grabbedPlayer
 local grabWeld
 
 local function setGrabEnabled(enabled)
+    TrollState.Grab = enabled
     if enabled then
         local target = EntityState.TargetPlayer or getRandomPlayer(true)
         if not target or not target.Character then
@@ -1424,162 +1381,35 @@ local function setGrabEnabled(enabled)
     end
 end
 
--- add toggle in Troll tab:
-createToggle(ContentFrames["Troll"], "Grab Player (uses Entity target)", false, setGrabEnabled)
-
-
--- Spinbot
-local spinConnection
-local function setSpinbotEnabled(enabled)
-    TrollState.Spinbot = enabled
-    if enabled then
-        notify("Troll", "Spinbot enabled", 2)
-        if spinConnection then spinConnection:Disconnect() end
-        spinConnection = RunService.RenderStepped:Connect(function(dt)
-            local char = safeGetCharacter()
-            local root = getRoot(char)
-            if root then
-                root.CFrame = root.CFrame * CFrame.Angles(0, dt * 10, 0)
-            end
-        end)
-    else
-        notify("Troll", "Spinbot disabled", 2)
-        if spinConnection then spinConnection:Disconnect() end
-        spinConnection = nil
-    end
-end
-
--- Orbit Player
-local orbitConnection
-local orbitRadius = 10
-local orbitSpeed = 2
-local function setOrbitPlayerEnabled(enabled)
-    TrollState.OrbitPlayer = enabled
-    if enabled then
-        notify("Troll", "Orbit Player enabled", 2)
-        if not EntityState.TargetPlayer then
-            EntityState.TargetPlayer = getRandomPlayer(true)
-        end
-        if orbitConnection then orbitConnection:Disconnect() end
-        orbitConnection = RunService.RenderStepped:Connect(function(dt)
-            local char = safeGetCharacter()
-            local root = getRoot(char)
-            local targetChar = getTargetCharacter()
-            if root and targetChar then
-                local targetRoot = targetChar:FindFirstChild("HumanoidRootPart")
-                if targetRoot then
-                    local t = tick() * orbitSpeed
-                    local offset = Vector3.new(math.cos(t) * orbitRadius, 3, math.sin(t) * orbitRadius)
-                    root.CFrame = CFrame.new(targetRoot.Position + offset, targetRoot.Position)
-                end
-            end
-        end)
-    else
-        notify("Troll", "Orbit Player disabled", 2)
-        if orbitConnection then orbitConnection:Disconnect() end
-        orbitConnection = nil
-    end
-end
-
--- Self Fling
-local function selfFling()
-    local root = getRoot()
-    if root then
-        root.Velocity = Vector3.new(0, 200, 0)
-        notify("Troll", "Self Fling executed", 2)
-    end
-end
-
--- Player Fling (simple velocity)
-local function playerFling()
-    local target = getRandomPlayer(true)
-    if target and target.Character then
-        local root = target.Character:FindFirstChild("HumanoidRootPart")
-        if root then
-            root.Velocity = Vector3.new(0, 200, 0)
-            notify("Troll", "Player Fling on " .. target.Name, 2)
-        end
-    end
-end
-
--- Fake messages
-local function fakeSystemMessage(msg)
-    notify("System", msg, 3)
-end
-
-local function fakeDisconnect()
-    fakeSystemMessage("You were disconnected from the game. (Fake)")
-end
-
-local function fakeJoin()
-    local target = getRandomPlayer(false)
-    if target then
-        fakeSystemMessage(target.Name .. " has joined the game. (Fake)")
-    end
-end
-
-local function fakeLeave()
-    local target = getRandomPlayer(false)
-    if target then
-        fakeSystemMessage(target.Name .. " has left the game. (Fake)")
-    end
-end
-
--- Clone Character
-local function cloneCharacter()
-    local char = safeGetCharacter()
-    local clone = char:Clone()
-    clone.Name = char.Name .. "_Clone"
-    clone.Parent = Workspace
-    local root = getRoot(char)
-    if root then
-        local cloneRoot = clone:FindFirstChild("HumanoidRootPart")
-        if cloneRoot then
-            cloneRoot.CFrame = root.CFrame * CFrame.new(0, 0, -5)
-        end
-    end
-    notify("Troll", "Character cloned", 2)
-end
-
--- Troll UI
 createToggle(ContentFrames["Troll"], "Spinbot", false, setSpinbotEnabled)
 createToggle(ContentFrames["Troll"], "Orbit Player", false, setOrbitPlayerEnabled)
-
 createToggle(ContentFrames["Troll"], "Self Fling", false, function(state)
-    TrollState.SelfFling = state
     if state then selfFling() end
 end)
-
-createToggle(ContentFrames["Troll"], "Player Fling", false, function(state)
-    TrollState.PlayerFling = state
+createToggle(ContentFrames["Troll"], "Player Fling (uses Entity target)", false, function(state)
     if state then playerFling() end
 end)
-
 createToggle(ContentFrames["Troll"], "Fake Disconnect", false, function(state)
-    TrollState.FakeDisconnect = state
     if state then fakeDisconnect() end
 end)
-
 createToggle(ContentFrames["Troll"], "Fake Join", false, function(state)
-    TrollState.FakeJoin = state
     if state then fakeJoin() end
 end)
-
 createToggle(ContentFrames["Troll"], "Fake Leave", false, function(state)
-    TrollState.FakeLeave = state
     if state then fakeLeave() end
 end)
-
 createToggle(ContentFrames["Troll"], "Clone Character", false, function(state)
-    TrollState.CloneCharacter = state
     if state then cloneCharacter() end
 end)
+createToggle(ContentFrames["Troll"], "Confuse Controls", false, setConfuseControlsEnabled)
+createToggle(ContentFrames["Troll"], "Random Teleport", false, function(state)
+    if state then randomTeleport() end
+end)
+createToggle(ContentFrames["Troll"], "Grab Player (uses Entity target)", false, setGrabEnabled)
 
 --================================================--
 -- VISUAL
 --================================================--
-
--- RGB Character
 local rgbConnection
 local function setRGBCharacterEnabled(enabled)
     VisualState.RGBCharacter = enabled
@@ -1587,7 +1417,7 @@ local function setRGBCharacterEnabled(enabled)
     if enabled then
         notify("Visual", "RGB Character enabled", 2)
         if rgbConnection then rgbConnection:Disconnect() end
-        rgbConnection = RunService.RenderStepped:Connect(function(dt)
+        rgbConnection = RunService.RenderStepped:Connect(function()
             local hue = (tick() * 0.2) % 1
             local color = Color3.fromHSV(hue, 1, 1)
             for _, part in ipairs(char:GetDescendants()) do
@@ -1603,7 +1433,6 @@ local function setRGBCharacterEnabled(enabled)
     end
 end
 
--- RGB Highlight
 local highlight
 local highlightConnection
 local function setRGBHighlightEnabled(enabled)
@@ -1618,7 +1447,7 @@ local function setRGBHighlightEnabled(enabled)
             highlight.Parent = char
         end
         if highlightConnection then highlightConnection:Disconnect() end
-        highlightConnection = RunService.RenderStepped:Connect(function(dt)
+        highlightConnection = RunService.RenderStepped:Connect(function()
             local hue = (tick() * 0.3) % 1
             highlight.OutlineColor = Color3.fromHSV(hue, 1, 1)
         end)
@@ -1633,7 +1462,6 @@ local function setRGBHighlightEnabled(enabled)
     end
 end
 
--- Rainbow Outline (UIStroke on character parts)
 local outlineConnection
 local function setRainbowOutlineEnabled(enabled)
     VisualState.RainbowOutline = enabled
@@ -1641,7 +1469,7 @@ local function setRainbowOutlineEnabled(enabled)
     if enabled then
         notify("Visual", "Rainbow Outline enabled", 2)
         if outlineConnection then outlineConnection:Disconnect() end
-        outlineConnection = RunService.RenderStepped:Connect(function(dt)
+        outlineConnection = RunService.RenderStepped:Connect(function()
             local hue = (tick() * 0.3) % 1
             local color = Color3.fromHSV(hue, 1, 1)
             for _, part in ipairs(char:GetDescendants()) do
@@ -1658,7 +1486,6 @@ local function setRainbowOutlineEnabled(enabled)
     end
 end
 
--- Particle Aura
 local function setParticleAuraEnabled(enabled)
     VisualState.ParticleAura = enabled
     local char = safeGetCharacter()
@@ -1688,7 +1515,6 @@ local function setParticleAuraEnabled(enabled)
     end
 end
 
--- Fire Aura
 local function setFireAuraEnabled(enabled)
     VisualState.FireAura = enabled
     local char = safeGetCharacter()
@@ -1716,7 +1542,6 @@ local function setFireAuraEnabled(enabled)
     end
 end
 
--- Smoke Aura
 local function setSmokeAuraEnabled(enabled)
     VisualState.SmokeAura = enabled
     local char = safeGetCharacter()
@@ -1744,7 +1569,6 @@ local function setSmokeAuraEnabled(enabled)
     end
 end
 
--- Sparkles
 local function setSparklesEnabled(enabled)
     VisualState.Sparkles = enabled
     local char = safeGetCharacter()
@@ -1770,8 +1594,7 @@ local function setSparklesEnabled(enabled)
     end
 end
 
--- Fullbright
-local originalLightingSettings = {
+local originalLighting = {
     Brightness = Lighting.Brightness,
     Ambient = Lighting.Ambient,
     OutdoorAmbient = Lighting.OutdoorAmbient
@@ -1786,13 +1609,12 @@ local function setFullbrightEnabled(enabled)
         Lighting.OutdoorAmbient = Color3.new(1, 1, 1)
     else
         notify("Visual", "Fullbright disabled", 2)
-        Lighting.Brightness = originalLightingSettings.Brightness
-        Lighting.Ambient = originalLightingSettings.Ambient
-        Lighting.OutdoorAmbient = originalLightingSettings.OutdoorAmbient
+        Lighting.Brightness = originalLighting.Brightness
+        Lighting.Ambient = originalLighting.Ambient
+        Lighting.OutdoorAmbient = originalLighting.OutdoorAmbient
     end
 end
 
--- Night Vision
 local function setNightVisionEnabled(enabled)
     VisualState.NightVision = enabled
     if enabled then
@@ -1802,13 +1624,12 @@ local function setNightVisionEnabled(enabled)
         Lighting.OutdoorAmbient = Color3.fromRGB(0, 255, 0)
     else
         notify("Visual", "Night Vision disabled", 2)
-        Lighting.Brightness = originalLightingSettings.Brightness
-        Lighting.Ambient = originalLightingSettings.Ambient
-        Lighting.OutdoorAmbient = originalLightingSettings.OutdoorAmbient
+        Lighting.Brightness = originalLighting.Brightness
+        Lighting.Ambient = originalLighting.Ambient
+        Lighting.OutdoorAmbient = originalLighting.OutdoorAmbient
     end
 end
 
--- Visual UI
 createToggle(ContentFrames["Visual"], "RGB Character", false, setRGBCharacterEnabled)
 createToggle(ContentFrames["Visual"], "RGB Highlight", false, setRGBHighlightEnabled)
 createToggle(ContentFrames["Visual"], "Rainbow Outline", false, setRainbowOutlineEnabled)
@@ -1822,7 +1643,6 @@ createToggle(ContentFrames["Visual"], "Night Vision", false, setNightVisionEnabl
 --================================================--
 -- VEHICLE
 --================================================--
-
 local vehicleFlyConnection
 local hoverConnection
 local nitroEnabled = false
@@ -1875,7 +1695,7 @@ local function setHoverEnabled(enabled)
     if enabled then
         notify("Vehicle", "Hover enabled", 2)
         if hoverConnection then hoverConnection:Disconnect() end
-        hoverConnection = RunService.RenderStepped:Connect(function(dt)
+        hoverConnection = RunService.RenderStepped:Connect(function()
             local seat = getVehicleSeat()
             if seat then
                 local pos = seat.Position
@@ -1913,18 +1733,20 @@ UserInputService.InputBegan:Connect(function(input, gp)
 
     if input.KeyCode == Enum.KeyCode.LeftShift and nitroEnabled then
         seat.Velocity = seat.CFrame.LookVector * 200
+        playSound(SoundIds.TrollSuccess, 0.8)
     end
 
     if input.KeyCode == Enum.KeyCode.Space and VehicleState.Jump then
         seat.Velocity = Vector3.new(0, 100, 0)
+        playSound(SoundIds.TrollSuccess, 0.8)
     end
 
     if input.KeyCode == Enum.KeyCode.E and driftEnabled then
         seat.Velocity = seat.CFrame.RightVector * 100
+        playSound(SoundIds.TrollSuccess, 0.8)
     end
 end)
 
--- Vehicle UI
 createToggle(ContentFrames["Vehicle"], "Vehicle Fly", false, setVehicleFlyEnabled)
 createToggle(ContentFrames["Vehicle"], "Hover", false, setHoverEnabled)
 createToggle(ContentFrames["Vehicle"], "Nitro (Shift)", false, setNitroEnabled)
@@ -1934,22 +1756,21 @@ createToggle(ContentFrames["Vehicle"], "Drift (E)", false, setDriftEnabled)
 --================================================--
 -- PHYSICS
 --================================================--
-
 local orbitPartsConnection
 
 local function setOrbitPartsEnabled(enabled)
     PhysicsState.OrbitParts = enabled
     if enabled then
         notify("Physics", "Orbit Parts enabled", 2)
-        PhysicsState.OrbitPartsList = getNearbyUnanchoredParts(50)
+        local parts = getNearbyUnanchoredParts(50)
         if orbitPartsConnection then orbitPartsConnection:Disconnect() end
-        orbitPartsConnection = RunService.RenderStepped:Connect(function(dt)
+        orbitPartsConnection = RunService.RenderStepped:Connect(function()
             local root = getRoot()
             if not root then return end
             local center = root.Position
             local radius = PhysicsState.OrbitRadius
             local speed = PhysicsState.OrbitSpeed
-            for i, part in ipairs(PhysicsState.OrbitPartsList) do
+            for i, part in ipairs(parts) do
                 if part and part.Parent then
                     local angle = tick() * speed + i
                     local offset = Vector3.new(math.cos(angle) * radius, 0, math.sin(angle) * radius)
@@ -1969,13 +1790,13 @@ local function setBlackHoleEnabled(enabled)
     PhysicsState.BlackHole = enabled
     if enabled then
         notify("Physics", "Black Hole mode enabled", 2)
-        PhysicsState.OrbitPartsList = getNearbyUnanchoredParts(80)
+        local parts = getNearbyUnanchoredParts(80)
         if orbitPartsConnection then orbitPartsConnection:Disconnect() end
-        orbitPartsConnection = RunService.RenderStepped:Connect(function(dt)
+        orbitPartsConnection = RunService.RenderStepped:Connect(function()
             local root = getRoot()
             if not root then return end
             local center = root.Position
-            for _, part in ipairs(PhysicsState.OrbitPartsList) do
+            for _, part in ipairs(parts) do
                 if part and part.Parent then
                     local dir = (center - part.Position).Unit
                     part.Velocity = dir * 100
@@ -1989,20 +1810,19 @@ local function setBlackHoleEnabled(enabled)
     end
 end
 
-local function releaseOrbitingParts()
-    notify("Physics", "Released all orbiting parts", 2)
-    PhysicsState.OrbitPartsList = {}
-end
-
 local function explosionRing()
     local root = getRoot()
-    if not root then return end
+    if not root then
+        playSound(SoundIds.TrollFail, 0.8)
+        return
+    end
     notify("Physics", "Explosion Ring triggered", 2)
     local parts = getNearbyUnanchoredParts(50)
     for _, part in ipairs(parts) do
         local dir = (part.Position - root.Position).Unit
         part.Velocity = dir * 200 + Vector3.new(0, 100, 0)
     end
+    playSound(SoundIds.TrollSuccess, 0.8)
 end
 
 createToggle(ContentFrames["Physics"], "Orbit Parts", false, setOrbitPartsEnabled)
@@ -2013,21 +1833,13 @@ createSlider(ContentFrames["Physics"], "Orbit Speed", 1, 10, 2, function(value)
     PhysicsState.OrbitSpeed = value
 end)
 createToggle(ContentFrames["Physics"], "Black Hole Mode", false, setBlackHoleEnabled)
-createToggle(ContentFrames["Physics"], "Release Orbiting Parts", false, function(state)
-    if state then
-        releaseOrbitingParts()
-    end
-end)
 createToggle(ContentFrames["Physics"], "Explosion Ring", false, function(state)
-    if state then
-        explosionRing()
-    end
+    if state then explosionRing() end
 end)
 
 --================================================--
 -- ESP
 --================================================--
-
 local espObjects = {
     Players = {},
     NPCs = {},
@@ -2044,20 +1856,20 @@ local function clearESP(category)
     espObjects[category] = {}
 end
 
-local function createBillboardESP(targetPart, color, category)
+local function createBillboardESP(targetPart, color, text, category)
     local bb = Instance.new("BillboardGui")
     bb.Size = UDim2.new(0, 100, 0, 40)
     bb.AlwaysOnTop = true
     bb.Parent = targetPart
 
-    local text = Instance.new("TextLabel")
-    text.Size = UDim2.new(1, 0, 1, 0)
-    text.BackgroundTransparency = 1
-    text.TextColor3 = color
-    text.Font = Enum.Font.GothamBold
-    text.TextSize = 14
-    text.Text = category
-    text.Parent = bb
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1, 0, 1, 0)
+    label.BackgroundTransparency = 1
+    label.TextColor3 = color
+    label.Font = Enum.Font.GothamBold
+    label.TextSize = 14
+    label.Text = text
+    label.Parent = bb
 
     table.insert(espObjects[category], bb)
 end
@@ -2071,7 +1883,7 @@ local function setPlayerESPEnabled(enabled)
             if plr ~= LocalPlayer and plr.Character then
                 local root = plr.Character:FindFirstChild("HumanoidRootPart")
                 if root then
-                    createBillboardESP(root, Color3.fromRGB(0, 255, 0), "Players")
+                    createBillboardESP(root, Color3.fromRGB(0, 255, 0), plr.Name, "Players")
                 end
             end
         end
@@ -2090,7 +1902,7 @@ local function setNPCESPEnabled(enabled)
             if model:IsA("Model") and model:FindFirstChildOfClass("Humanoid") and not Players:GetPlayerFromCharacter(model) then
                 local root = model:FindFirstChild("HumanoidRootPart")
                 if root then
-                    createBillboardESP(root, Color3.fromRGB(255, 255, 0), "NPCs")
+                    createBillboardESP(root, Color3.fromRGB(255, 255, 0), model.Name, "NPCs")
                 end
             end
         end
@@ -2107,7 +1919,7 @@ local function setVehicleESPEnabled(enabled)
         clearESP("Vehicles")
         for _, part in ipairs(Workspace:GetDescendants()) do
             if part:IsA("VehicleSeat") then
-                createBillboardESP(part, Color3.fromRGB(0, 150, 255), "Vehicles")
+                createBillboardESP(part, Color3.fromRGB(0, 150, 255), "Vehicle", "Vehicles")
             end
         end
     else
@@ -2125,7 +1937,7 @@ local function setToolESPEnabled(enabled)
             if tool:IsA("Tool") then
                 local handle = tool:FindFirstChild("Handle")
                 if handle and handle:IsA("BasePart") then
-                    createBillboardESP(handle, Color3.fromRGB(255, 0, 255), "Tools")
+                    createBillboardESP(handle, Color3.fromRGB(255, 0, 255), tool.Name, "Tools")
                 end
             end
         end
@@ -2141,29 +1953,44 @@ createToggle(ContentFrames["ESP"], "Vehicle ESP", false, setVehicleESPEnabled)
 createToggle(ContentFrames["ESP"], "Tool ESP", false, setToolESPEnabled)
 
 --================================================--
--- UTILITY (extra helpers / future extension)
+-- UTILITY
 --================================================--
-
 local function resetCharacter()
     local humanoid = getHumanoid()
     if humanoid then
         humanoid.Health = 0
+        notify("Utility", "Character reset", 2)
     end
 end
 
 local function teleportToPlayer(target)
-    if not target or not target.Character then return end
+    if not target or not target.Character then
+        playSound(SoundIds.TrollFail, 0.8)
+        return
+    end
     local root = getRoot()
     local targetRoot = target.Character:FindFirstChild("HumanoidRootPart")
     if root and targetRoot then
         root.CFrame = targetRoot.CFrame * CFrame.new(0, 0, -5)
+        playSound(SoundIds.TrollSuccess, 0.8)
+        notify("Utility", "Teleported to " .. target.Name, 2)
     end
 end
 
-createToggle(ContentFrames["Utility"], "Reset Character", false, function(state)
-    if state then
-        resetCharacter()
+local function healNearbyPlayers()
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr.Character then
+            local hum = plr.Character:FindFirstChildOfClass("Humanoid")
+            if hum then
+                hum.Health = hum.MaxHealth
+            end
+        end
     end
+    notify("Utility", "Healed all players", 2)
+end
+
+createToggle(ContentFrames["Utility"], "Reset Character", false, function(state)
+    if state then resetCharacter() end
 end)
 
 createToggle(ContentFrames["Utility"], "Teleport to Random Player", false, function(state)
@@ -2173,8 +2000,158 @@ createToggle(ContentFrames["Utility"], "Teleport to Random Player", false, funct
     end
 end)
 
-setActiveTab("Welcome")
+createToggle(ContentFrames["Utility"], "Heal All Players", false, function(state)
+    if state then healNearbyPlayers() end
+end)
 
+--================================================--
+-- OPTIONS TAB (SOUNDS + THEMES)
+--================================================--
+local optFrame = ContentFrames["Options"]
+
+local function createSoundOption(parent, labelText, keyName)
+    local container = Instance.new("Frame")
+    container.Size = UDim2.new(1, -20, 0, 60)
+    container.BackgroundTransparency = 1
+    container.Parent = parent
+
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1, 0, 0, 20)
+    label.BackgroundTransparency = 1
+    label.Text = labelText .. " (" .. SoundIds[keyName] .. ")"
+    label.TextColor3 = Color3.fromRGB(255, 255, 255)
+    label.Font = Enum.Font.Gotham
+    label.TextSize = 14
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.Parent = container
+
+    local input = Instance.new("TextBox")
+    input.Size = UDim2.new(0.6, 0, 0, 24)
+    input.Position = UDim2.new(0, 0, 0, 26)
+    input.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+    input.TextColor3 = Color3.fromRGB(255, 255, 255)
+    input.Font = Enum.Font.Gotham
+    input.TextSize = 14
+    input.PlaceholderText = "rbxassetid://ID or full asset id"
+    input.Text = SoundIds[keyName]
+    input.Parent = container
+
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 6)
+    corner.Parent = input
+
+    local applyBtn = Instance.new("TextButton")
+    applyBtn.Size = UDim2.new(0.18, 0, 0, 24)
+    applyBtn.Position = UDim2.new(0.62, 4, 0, 26)
+    applyBtn.BackgroundColor3 = Color3.fromRGB(40, 80, 40)
+    applyBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    applyBtn.Font = Enum.Font.GothamBold
+    applyBtn.TextSize = 14
+    applyBtn.Text = "Apply"
+    applyBtn.Parent = container
+
+    local aCorner = Instance.new("UICorner")
+    aCorner.CornerRadius = UDim.new(0, 6)
+    aCorner.Parent = applyBtn
+
+    local testBtn = Instance.new("TextButton")
+    testBtn.Size = UDim2.new(0.18, 0, 0, 24)
+    testBtn.Position = UDim2.new(0.82, 4, 0, 26)
+    testBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 80)
+    testBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    testBtn.Font = Enum.Font.GothamBold
+    testBtn.TextSize = 14
+    testBtn.Text = "Test"
+    testBtn.Parent = container
+
+    local tCorner = Instance.new("UICorner")
+    tCorner.CornerRadius = UDim.new(0, 6)
+    tCorner.Parent = testBtn
+
+    applyBtn.MouseButton1Click:Connect(function()
+        playSound(SoundIds.ButtonClick, 0.7)
+        SoundIds[keyName] = input.Text
+        label.Text = labelText .. " (" .. SoundIds[keyName] .. ")"
+        notify("Options", labelText .. " sound updated", 2)
+    end)
+
+    testBtn.MouseButton1Click:Connect(function()
+        playSound(SoundIds.ButtonClick, 0.7)
+        playSound(SoundIds[keyName], 1)
+    end)
+end
+
+local soundHeader = Instance.new("TextLabel")
+soundHeader.Size = UDim2.new(1, -20, 0, 20)
+soundHeader.BackgroundTransparency = 1
+soundHeader.Text = "Sound Options"
+soundHeader.TextColor3 = Color3.fromRGB(255, 255, 255)
+soundHeader.Font = Enum.Font.GothamBold
+soundHeader.TextSize = 16
+soundHeader.TextXAlignment = Enum.TextXAlignment.Left
+soundHeader.Parent = optFrame
+
+createSoundOption(optFrame, "Wrong Key", "WrongKey")
+createSoundOption(optFrame, "Correct Key", "CorrectKey")
+createSoundOption(optFrame, "Button Click", "ButtonClick")
+createSoundOption(optFrame, "Notification", "Notification")
+createSoundOption(optFrame, "Troll Fail", "TrollFail")
+createSoundOption(optFrame, "Troll Success", "TrollSuccess")
+
+local currentTheme = "DarkGlass"
+
+local function applyTheme(themeName)
+    currentTheme = themeName
+    if themeName == "DarkGlass" then
+        MainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+        MainFrame.BackgroundTransparency = 0.25
+    elseif themeName == "Neon" then
+        MainFrame.BackgroundColor3 = Color3.fromRGB(10, 10, 20)
+        MainFrame.BackgroundTransparency = 0.15
+    elseif themeName == "RedBlack" then
+        MainFrame.BackgroundColor3 = Color3.fromRGB(25, 5, 5)
+        MainFrame.BackgroundTransparency = 0.2
+    elseif themeName == "Vaporwave" then
+        MainFrame.BackgroundColor3 = Color3.fromRGB(40, 10, 60)
+        MainFrame.BackgroundTransparency = 0.2
+    end
+    notify("Options", "Theme set to " .. themeName, 2)
+end
+
+local themeLabel = Instance.new("TextLabel")
+themeLabel.Size = UDim2.new(1, -20, 0, 20)
+themeLabel.BackgroundTransparency = 1
+themeLabel.Text = "Themes"
+themeLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+themeLabel.Font = Enum.Font.GothamBold
+themeLabel.TextSize = 16
+themeLabel.TextXAlignment = Enum.TextXAlignment.Left
+themeLabel.Parent = optFrame
+
+local function createThemeButton(parent, name)
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(1, -20, 0, 26)
+    btn.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btn.Font = Enum.Font.GothamBold
+    btn.TextSize = 14
+    btn.Text = "Theme: " .. name
+    btn.Parent = parent
+
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 6)
+    corner.Parent = btn
+
+    btn.MouseButton1Click:Connect(function()
+        playSound(SoundIds.ButtonClick, 0.7)
+        applyTheme(name)
+    end)
+end
+
+createThemeButton(optFrame, "DarkGlass")
+createThemeButton(optFrame, "Neon")
+createThemeButton(optFrame, "RedBlack")
+createThemeButton(optFrame, "Vaporwave")
 
 --================================================--
 -- END OF SCRIPT
