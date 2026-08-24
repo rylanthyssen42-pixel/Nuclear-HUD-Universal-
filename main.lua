@@ -1,20 +1,14 @@
 --================================================--
--- Nuclear Labs Client - LocalScript (v3.1 ULTRA+)
+-- Nuclear Labs Client - v4.0 ULTIMATE FE
 --================================================--
--- MAJOR IMPROVEMENTS:
--- 1. Modern gradient UI with animations
--- 2. 15+ tabs with tons of features
--- 3. Flinging: Touch Fling, Click Fling, Proximity Fling
--- 4. Advanced trolling & Quality of Life
--- 5. FE Player Collision Toggle (PASS THROUGH PLAYERS)
--- 6. Smooth UI transitions & effects
+-- PURE FE EXPLOITS • PRISTINE UI • 50+ FEATURES
+-- Everything is FilteringEnabled compatible
 --================================================--
 
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
-local PathfindingService = game:GetService("PathfindingService")
 local Lighting = game:GetService("Lighting")
 local StarterGui = game:GetService("StarterGui")
 local SoundService = game:GetService("SoundService")
@@ -24,49 +18,44 @@ local LocalPlayer = Players.LocalPlayer
 local Camera = Workspace.CurrentCamera
 
 --================================================--
--- SOUND IDS
+-- SOUNDS
 --================================================--
 local SoundIds = {
-    WrongKey = "rbxassetid://133295018060041",
-    CorrectKey = "rbxassetid://130206997868957",
-    ButtonClick = "rbxassetid://82845990304289",
+    Click = "rbxassetid://12221967",
+    Success = "rbxassetid://135329036031873",
+    Error = "rbxassetid://133843340754810",
     Notification = "rbxassetid://131390520971848",
-    TrollFail = "rbxassetid://133843340754810",
-    TrollSuccess = "rbxassetid://135329036031873",
-    LaserShoot = "rbxassetid://133843340754810"
+    Teleport = "rbxassetid://130206997868957"
 }
 
-local function playSound(id, volume, parent)
+local function playSound(id, volume)
     local s = Instance.new("Sound")
     s.SoundId = id
-    s.Volume = volume or 1
-    s.Parent = parent or SoundService
+    s.Volume = volume or 0.5
+    s.Parent = SoundService
     s:Play()
-    game.Debris:AddItem(s, 5)
-    return s
+    game.Debris:AddItem(s, 2)
 end
 
 --================================================--
--- UTILITY FUNCTIONS
+-- UTILITIES
 --================================================--
 local function safeGetCharacter()
-    local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
-    return char
+    return LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
 end
 
-local function getHumanoid(character)
-    character = character or safeGetCharacter()
-    return character:FindFirstChildOfClass("Humanoid")
+local function getHumanoid(char)
+    char = char or safeGetCharacter()
+    return char:FindFirstChildOfClass("Humanoid")
 end
 
-local function getRoot(character)
-    character = character or safeGetCharacter()
-    return character:FindFirstChild("HumanoidRootPart")
+local function getRoot(char)
+    char = char or safeGetCharacter()
+    return char:FindFirstChild("HumanoidRootPart")
 end
 
 local function notify(title, text, duration)
     duration = duration or 3
-    playSound(SoundIds.Notification, 0.8)
     pcall(function()
         StarterGui:SetCore("SendNotification", {
             Title = title,
@@ -76,28 +65,6 @@ local function notify(title, text, duration)
     end)
 end
 
-local function getVehicleSeat()
-    local char = safeGetCharacter()
-    local humanoid = getHumanoid(char)
-    if humanoid and humanoid.SeatPart and humanoid.SeatPart:IsA("VehicleSeat") then
-        return humanoid.SeatPart
-    end
-    return nil
-end
-
-local function getNearbyUnanchoredParts(radius)
-    radius = radius or 50
-    local root = getRoot()
-    if not root then return {} end
-    local parts = {}
-    for _, part in ipairs(Workspace:GetDescendants()) do
-        if part:IsA("BasePart") and not part.Anchored and (part.Position - root.Position).Magnitude <= radius then
-            table.insert(parts, part)
-        end
-    end
-    return parts
-end
-
 local function getNearbyPlayers(radius)
     radius = radius or 50
     local root = getRoot()
@@ -105,8 +72,8 @@ local function getNearbyPlayers(radius)
     local players = {}
     for _, plr in ipairs(Players:GetPlayers()) do
         if plr ~= LocalPlayer and plr.Character then
-            local plrRoot = plr.Character:FindFirstChild("HumanoidRootPart")
-            if plrRoot and (plrRoot.Position - root.Position).Magnitude <= radius then
+            local targetRoot = plr.Character:FindFirstChild("HumanoidRootPart")
+            if targetRoot and (targetRoot.Position - root.Position).Magnitude <= radius then
                 table.insert(players, plr)
             end
         end
@@ -114,90 +81,489 @@ local function getNearbyPlayers(radius)
     return players
 end
 
-local function getRandomPlayer(excludeLocal)
-    local list = {}
-    for _, plr in ipairs(Players:GetPlayers()) do
-        if not (excludeLocal and plr == LocalPlayer) then
-            table.insert(list, plr)
+--================================================--
+-- STATE
+--================================================--
+local State = {
+    Fly = false, Noclip = false, Speed = false, GodMode = false,
+    ClickTP = false, BHole = false, Orbit = false, Telekinesis = false,
+    Gravity = false, Ragdoll = false, PetFollow = false, Fling = false,
+    TouchFling = false, ProximityFling = false, Spinbot = false,
+    ESP = false, Wallhack = false, Fullbright = false,
+    PlayerCollisions = true, InfiniteJump = false
+}
+
+local Connections = {}
+local Values = {
+    FlySpeed = 60,
+    WalkSpeed = 16,
+    JumpPower = 50,
+    SpinSpeed = 5,
+    FlingForce = 150,
+    ProximityRadius = 40,
+    OrbitSpeed = 0.05,
+    OrbitRadius = 15,
+    TelekinesisForce = 100
+}
+
+--================================================--
+-- MAIN GUI
+--================================================--
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "NuclearLabsV4"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.IgnoreGuiInset = true
+ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+
+local MainFrame = Instance.new("Frame")
+MainFrame.Name = "MainFrame"
+MainFrame.Size = UDim2.new(0, 900, 0, 600)
+MainFrame.Position = UDim2.new(0.5, -450, 0.5, -300)
+MainFrame.BackgroundColor3 = Color3.fromRGB(12, 12, 18)
+MainFrame.BackgroundTransparency = 0.02
+MainFrame.BorderSizePixel = 0
+MainFrame.Active = true
+MainFrame.Draggable = true
+MainFrame.Parent = ScreenGui
+
+local Corner = Instance.new("UICorner")
+Corner.CornerRadius = UDim.new(0, 20)
+Corner.Parent = MainFrame
+
+local Stroke = Instance.new("UIStroke")
+Stroke.Thickness = 3
+Stroke.Color = Color3.fromRGB(100, 50, 200)
+Stroke.Parent = MainFrame
+
+-- GRADIENT BACKGROUND
+local GradBG = Instance.new("TextLabel")
+GradBG.Size = UDim2.new(1, 0, 1, 0)
+GradBG.BackgroundTransparency = 1
+GradBG.Text = ""
+GradBG.ZIndex = 0
+GradBG.Parent = MainFrame
+
+local Grad = Instance.new("UIGradient")
+Grad.Color = ColorSequence.new{
+    ColorSequenceKeypoint.new(0, Color3.fromRGB(20, 10, 40)),
+    ColorSequenceKeypoint.new(0.5, Color3.fromRGB(30, 15, 60)),
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(15, 5, 35))
+}
+Grad.Rotation = 45
+Grad.Parent = GradBG
+
+-- ANIMATED STROKE
+local hue = 0
+RunService.RenderStepped:Connect(function(dt)
+    hue = (hue + dt * 0.05) % 1
+    Stroke.Color = Color3.fromHSV(hue, 0.7, 1)
+end)
+
+--================================================--
+-- TOP BAR
+--================================================--
+local TopBar = Instance.new("Frame")
+TopBar.Size = UDim2.new(1, 0, 0, 55)
+TopBar.BackgroundColor3 = Color3.fromRGB(8, 8, 12)
+TopBar.BackgroundTransparency = 0.1
+TopBar.BorderSizePixel = 0
+TopBar.Parent = MainFrame
+
+local TopCorner = Instance.new("UICorner")
+TopCorner.CornerRadius = UDim.new(0, 20)
+TopCorner.Parent = TopBar
+
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(0.6, 0, 1, 0)
+Title.Position = UDim2.new(0, 15, 0, 0)
+Title.BackgroundTransparency = 1
+Title.Text = "⚛ NUCLEAR LABS v4.0"
+Title.TextColor3 = Color3.fromRGB(255, 100, 200)
+Title.TextXAlignment = Enum.TextXAlignment.Left
+Title.Font = Enum.Font.GothamBold
+Title.TextSize = 22
+Title.Parent = TopBar
+
+local Status = Instance.new("TextLabel")
+Status.Size = UDim2.new(0.4, -20, 1, 0)
+Status.Position = UDim2.new(0.6, 10, 0, 0)
+Status.BackgroundTransparency = 1
+Status.Text = "🔴 Waiting for input..."
+Status.TextColor3 = Color3.fromRGB(150, 150, 200)
+Status.TextXAlignment = Enum.TextXAlignment.Right
+Status.Font = Enum.Font.Gotham
+Status.TextSize = 11
+Status.Parent = TopBar
+
+local MinBtn = Instance.new("TextButton")
+MinBtn.Size = UDim2.new(0, 45, 0, 35)
+MinBtn.Position = UDim2.new(1, -100, 0.5, -17.5)
+MinBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 70)
+MinBtn.Text = "−"
+MinBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+MinBtn.Font = Enum.Font.GothamBold
+MinBtn.TextSize = 20
+MinBtn.Parent = TopBar
+
+local MinCorner = Instance.new("UICorner")
+MinCorner.CornerRadius = UDim.new(0, 10)
+MinCorner.Parent = MinBtn
+
+local CloseBtn = Instance.new("TextButton")
+CloseBtn.Size = UDim2.new(0, 45, 0, 35)
+CloseBtn.Position = UDim2.new(1, -50, 0.5, -17.5)
+CloseBtn.BackgroundColor3 = Color3.fromRGB(150, 50, 50)
+CloseBtn.Text = "✕"
+CloseBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+CloseBtn.Font = Enum.Font.GothamBold
+CloseBtn.TextSize = 20
+CloseBtn.Parent = TopBar
+
+local CloseCorner = Instance.new("UICorner")
+CloseCorner.CornerRadius = UDim.new(0, 10)
+CloseCorner.Parent = CloseBtn
+
+--================================================--
+-- TABS
+--================================================--
+local TabsFrame = Instance.new("Frame")
+TabsFrame.Size = UDim2.new(0, 180, 1, -55)
+TabsFrame.Position = UDim2.new(0, 0, 0, 55)
+TabsFrame.BackgroundTransparency = 1
+TabsFrame.Parent = MainFrame
+
+local TabsList = Instance.new("UIListLayout")
+TabsList.FillDirection = Enum.FillDirection.Vertical
+TabsList.Padding = UDim.new(0, 6)
+TabsList.Parent = TabsFrame
+
+local ContentFrame = Instance.new("Frame")
+ContentFrame.Size = UDim2.new(1, -180, 1, -55)
+ContentFrame.Position = UDim2.new(0, 180, 0, 55)
+ContentFrame.BackgroundTransparency = 1
+ContentFrame.Parent = MainFrame
+
+local TabNames = {"Movement", "Combat", "Physics", "Trolling", "Visuals", "Misc"}
+local TabButtons = {}
+local ContentPages = {}
+
+local function createTabButton(name, index)
+    local btn = Instance.new("TextButton")
+    btn.Name = name .. "Tab"
+    btn.Size = UDim2.new(1, -12, 0, 40)
+    btn.Position = UDim2.new(0, 6, 0, (index-1)*46 + 6)
+    btn.BackgroundColor3 = Color3.fromRGB(35, 25, 50)
+    btn.Text = name
+    btn.TextColor3 = Color3.fromRGB(200, 200, 220)
+    btn.Font = Enum.Font.GothamBold
+    btn.TextSize = 12
+    btn.Parent = TabsFrame
+    
+    local btnCorner = Instance.new("UICorner")
+    btnCorner.CornerRadius = UDim.new(0, 10)
+    btnCorner.Parent = btn
+    
+    return btn
+end
+
+local function createContentPage(name)
+    local page = Instance.new("ScrollingFrame")
+    page.Name = name .. "Page"
+    page.Size = UDim2.new(1, 0, 1, 0)
+    page.CanvasSize = UDim2.new(0, 0, 0, 0)
+    page.ScrollBarThickness = 10
+    page.BackgroundTransparency = 1
+    page.Visible = false
+    page.Parent = ContentFrame
+    
+    local layout = Instance.new("UIListLayout")
+    layout.FillDirection = Enum.FillDirection.Vertical
+    layout.Padding = UDim.new(0, 10)
+    layout.Parent = page
+    
+    return page
+end
+
+for i, name in ipairs(TabNames) do
+    TabButtons[name] = createTabButton(name, i)
+    ContentPages[name] = createContentPage(name)
+end
+
+local ActiveTab = "Movement"
+
+local function switchTab(name)
+    for tabName, page in pairs(ContentPages) do
+        page.Visible = (tabName == name)
+    end
+    for tabName, btn in pairs(TabButtons) do
+        if tabName == name then
+            TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(100, 60, 150)}):Play()
+        else
+            TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(35, 25, 50)}):Play()
         end
     end
-    if #list == 0 then return nil end
-    return list[math.random(1, #list)]
+    ActiveTab = name
+end
+
+for name, btn in pairs(TabButtons) do
+    btn.MouseButton1Click:Connect(function()
+        playSound(SoundIds.Click, 0.3)
+        switchTab(name)
+    end)
+end
+
+switchTab("Movement")
+
+--================================================--
+-- UI COMPONENTS
+--================================================--
+local function createToggle(parent, label, default, callback)
+    local container = Instance.new("Frame")
+    container.Size = UDim2.new(1, -20, 0, 40)
+    container.BackgroundTransparency = 1
+    container.Parent = parent
+    
+    local lbl = Instance.new("TextLabel")
+    lbl.Size = UDim2.new(0.65, 0, 1, 0)
+    lbl.BackgroundTransparency = 1
+    lbl.Text = label
+    lbl.TextColor3 = Color3.fromRGB(220, 220, 230)
+    lbl.Font = Enum.Font.Gotham
+    lbl.TextSize = 12
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
+    lbl.Parent = container
+    
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(0.35, -8, 0.7, 0)
+    btn.Position = UDim2.new(0.65, 0, 0.15, 0)
+    btn.BackgroundColor3 = default and Color3.fromRGB(80, 200, 120) or Color3.fromRGB(60, 60, 80)
+    btn.Text = default and "ON" or "OFF"
+    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btn.Font = Enum.Font.GothamBold
+    btn.TextSize = 11
+    btn.Parent = container
+    
+    local btnCorner = Instance.new("UICorner")
+    btnCorner.CornerRadius = UDim.new(0, 6)
+    btnCorner.Parent = btn
+    
+    local state = default
+    
+    btn.MouseButton1Click:Connect(function()
+        playSound(SoundIds.Click, 0.2)
+        state = not state
+        btn.Text = state and "ON" or "OFF"
+        local color = state and Color3.fromRGB(80, 200, 120) or Color3.fromRGB(60, 60, 80)
+        TweenService:Create(btn, TweenInfo.new(0.15), {BackgroundColor3 = color}):Play()
+        if callback then callback(state) end
+    end)
+    
+    return container
+end
+
+local function createSlider(parent, label, min, max, default, callback)
+    local container = Instance.new("Frame")
+    container.Size = UDim2.new(1, -20, 0, 60)
+    container.BackgroundTransparency = 1
+    container.Parent = parent
+    
+    local lbl = Instance.new("TextLabel")
+    lbl.Size = UDim2.new(1, 0, 0.4, 0)
+    lbl.BackgroundTransparency = 1
+    lbl.Text = label .. " [" .. default .. "]"
+    lbl.TextColor3 = Color3.fromRGB(200, 200, 220)
+    lbl.Font = Enum.Font.Gotham
+    lbl.TextSize = 11
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
+    lbl.Parent = container
+    
+    local bar = Instance.new("Frame")
+    bar.Size = UDim2.new(1, -20, 0, 8)
+    bar.Position = UDim2.new(0, 10, 0.45, 5)
+    bar.BackgroundColor3 = Color3.fromRGB(40, 40, 60)
+    bar.BorderSizePixel = 0
+    bar.Parent = container
+    
+    local barCorner = Instance.new("UICorner")
+    barCorner.CornerRadius = UDim.new(0, 4)
+    barCorner.Parent = bar
+    
+    local knob = Instance.new("Frame")
+    knob.Size = UDim2.new(0, 14, 0, 14)
+    knob.Position = UDim2.new((default - min) / (max - min), -7, 0.5, -7)
+    knob.BackgroundColor3 = Color3.fromRGB(100, 180, 255)
+    knob.BorderSizePixel = 0
+    knob.Parent = bar
+    
+    local knobCorner = Instance.new("UICorner")
+    knobCorner.CornerRadius = UDim.new(1, 0)
+    knobCorner.Parent = knob
+    
+    local dragging = false
+    
+    local function update(x)
+        local rel = math.clamp((x - bar.AbsolutePosition.X) / bar.AbsoluteSize.X, 0, 1)
+        local value = math.floor(min + (max - min) * rel)
+        knob.Position = UDim2.new(rel, -7, 0.5, -7)
+        lbl.Text = label .. " [" .. value .. "]"
+        if callback then callback(value) end
+    end
+    
+    knob.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then dragging = true end
+    end)
+    
+    knob.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then dragging = false end
+    end)
+    
+    bar.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = true
+            update(input.Position.X)
+        end
+    end)
+    
+    UserInputService.InputChanged:Connect(function(input)
+        if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+            update(input.Position.X)
+        end
+    end)
+    
+    return container
 end
 
 --================================================--
--- STATE TABLES
+-- MOVEMENT TAB
 --================================================--
-local MovementState = {
-    Fly = false, Noclip = false, InfiniteJump = false, Dash = false,
-    ClickTeleport = false, WalkSpeed = 16, JumpPower = 50, GodMode = false,
-    SpeedEnabled = false, PlayerCollisionsEnabled = true
-}
+local movementPage = ContentPages["Movement"]
 
-local FlingState = {
-    TouchFling = false, ClickFling = false, ProximityFling = false,
-    FlingForce = 100, ProximityRadius = 30
-}
-
-local TrollState = {
-    Spinbot = false, OrbitPlayer = false, SelfFling = false, PlayerFling = false,
-    ChatSpam = false, PetFollower = false, RainbowName = false,
-    Teleport = false, LagSwitch = false
-}
-
-local VisualState = {
-    RGBCharacter = false, Fullbright = false, NightVision = false,
-    TransparentWalls = false, ESP = false
-}
-
-local VehicleState = {
-    VehicleFly = false, Hover = false, Nitro = false, Jump = false
-}
-
-local PhysicsState = {
-    OrbitParts = false, OrbitRadius = 20, OrbitSpeed = 2, BlackHole = false
-}
-
---================================================--
--- FE PLAYER COLLISION SYSTEM
---================================================--
-local playerCollisionConnection
-local collidingPlayers = {}
-
-local function setPlayerCollisionsEnabled(enabled)
-    MovementState.PlayerCollisionsEnabled = enabled
+-- FLY
+local function startFly()
+    if State.Fly then return end
+    State.Fly = true
+    Status.Text = "🟢 Flying..."
     
-    if enabled then
-        notify("Movement", "🤝 Player Collisions ENABLED", 2)
-        if playerCollisionConnection then playerCollisionConnection:Disconnect() end
-        collidingPlayers = {}
-    else
-        notify("Movement", "👻 Player Collisions DISABLED (Pass Through)", 2)
-        if playerCollisionConnection then playerCollisionConnection:Disconnect() end
+    if Connections.Fly then Connections.Fly:Disconnect() end
+    
+    Connections.Fly = RunService.RenderStepped:Connect(function()
+        local root = getRoot()
+        if not root then return end
         
-        playerCollisionConnection = RunService.Heartbeat:Connect(function()
-            local char = safeGetCharacter()
-            if not char then return end
+        local vel = Vector3.new(0, 0, 0)
+        local cam = Camera.CFrame
+        
+        if UserInputService:IsKeyDown(Enum.KeyCode.W) then vel = vel + cam.LookVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.S) then vel = vel - cam.LookVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.A) then vel = vel - cam.RightVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.D) then vel = vel + cam.RightVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then vel = vel + cam.UpVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then vel = vel - cam.UpVector end
+        
+        if vel.Magnitude > 0 then vel = vel.Unit * Values.FlySpeed end
+        
+        root.AssemblyLinearVelocity = vel
+        root.CFrame = CFrame.new(root.Position, root.Position + cam.LookVector)
+    end)
+end
+
+local function stopFly()
+    State.Fly = false
+    if Connections.Fly then Connections.Fly:Disconnect() end
+    Status.Text = "🔴 Fly stopped"
+end
+
+-- NOCLIP
+local function startNoclip()
+    if State.Noclip then return end
+    State.Noclip = true
+    Status.Text = "🟢 Noclipping..."
+    
+    if Connections.Noclip then Connections.Noclip:Disconnect() end
+    
+    local char = safeGetCharacter()
+    Connections.Noclip = RunService.Stepped:Connect(function()
+        char = safeGetCharacter()
+        for _, part in ipairs(char:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.CanCollide = false
+            end
+        end
+    end)
+end
+
+local function stopNoclip()
+    State.Noclip = false
+    if Connections.Noclip then Connections.Noclip:Disconnect() end
+    local char = safeGetCharacter()
+    for _, part in ipairs(char:GetDescendants()) do
+        if part:IsA("BasePart") then
+            part.CanCollide = true
+        end
+    end
+    Status.Text = "🔴 Noclip stopped"
+end
+
+-- SPEED
+local speedConnection
+local function setSpeed(val)
+    Values.WalkSpeed = val
+    if State.Speed then
+        local humanoid = getHumanoid()
+        if humanoid then humanoid.WalkSpeed = val end
+    end
+end
+
+-- GOD MODE
+local function startGodMode()
+    if State.GodMode then return end
+    State.GodMode = true
+    Status.Text = "🟢 God Mode ON"
+    
+    if Connections.GodMode then Connections.GodMode:Disconnect() end
+    
+    Connections.GodMode = RunService.Heartbeat:Connect(function()
+        local humanoid = getHumanoid()
+        if humanoid then humanoid.Health = humanoid.MaxHealth end
+    end)
+end
+
+local function stopGodMode()
+    State.GodMode = false
+    if Connections.GodMode then Connections.GodMode:Disconnect() end
+    Status.Text = "🔴 God Mode OFF"
+end
+
+-- INFINITE JUMP
+UserInputService.JumpRequest:Connect(function()
+    if State.InfiniteJump then
+        local humanoid = getHumanoid()
+        if humanoid then
+            humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+        end
+    end
+end)
+
+-- PLAYER COLLISIONS
+local function setPlayerCollisions(enabled)
+    State.PlayerCollisions = enabled
+    if enabled then
+        Status.Text = "🟢 Player collisions ON"
+    else
+        Status.Text = "👻 Player collisions OFF (FE bypass)"
+        if Connections.Collisions then Connections.Collisions:Disconnect() end
+        
+        Connections.Collisions = RunService.Heartbeat:Connect(function()
+            local root = getRoot()
+            if not root then return end
             
-            -- Get all player humanoid root parts
-            for _, plr in ipairs(Players:GetPlayers()) do
-                if plr ~= LocalPlayer and plr.Character then
-                    local targetRoot = plr.Character:FindFirstChild("HumanoidRootPart")
-                    if targetRoot then
-                        -- Set the player's collision group to ignore local player
-                        local success, err = pcall(function()
-                            -- This is client-side, so we move the player's character slightly
-                            -- when they try to collide with you (creating an invisible push-through effect)
-                            local localRoot = getRoot(char)
-                            if localRoot then
-                                local distance = (targetRoot.Position - localRoot.Position).Magnitude
-                                if distance < 5 then  -- If very close
-                                    -- Push them away slightly (client-side prediction)
-                                    local direction = (targetRoot.Position - localRoot.Position).Unit
-                                    targetRoot.AssemblyLinearVelocity = targetRoot.AssemblyLinearVelocity + direction * 2
-                                end
-                            end
-                        end)
+            for _, plr in ipairs(getNearbyPlayers(200)) do
+                local targetRoot = plr.Character:FindFirstChild("HumanoidRootPart")
+                if targetRoot then
+                    local dist = (targetRoot.Position - root.Position).Magnitude
+                    if dist < 4 then
+                        local dir = (targetRoot.Position - root.Position).Unit
+                        targetRoot.AssemblyLinearVelocity = dir * 50
                     end
                 end
             end
@@ -205,993 +571,608 @@ local function setPlayerCollisionsEnabled(enabled)
     end
 end
 
---================================================--
--- UI CREATION (IMPROVED)
---================================================--
-local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "NuclearLabsULTRA"
-ScreenGui.ResetOnSpawn = false
-ScreenGui.IgnoreGuiInset = true
-ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
-
-local Blur = Instance.new("BlurEffect")
-Blur.Size = 0
-Blur.Parent = Lighting
-
-local MainFrame = Instance.new("Frame")
-MainFrame.Name = "MainFrame"
-MainFrame.Size = UDim2.new(0, 800, 0, 500)
-MainFrame.Position = UDim2.new(0.5, -400, 0.5, -250)
-MainFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
-MainFrame.BackgroundTransparency = 0.1
-MainFrame.BorderSizePixel = 0
-MainFrame.Active = true
-MainFrame.Draggable = true
-MainFrame.Parent = ScreenGui
-
-local MainCorner = Instance.new("UICorner")
-MainCorner.CornerRadius = UDim.new(0, 16)
-MainCorner.Parent = MainFrame
-
-local MainStroke = Instance.new("UIStroke")
-MainStroke.Thickness = 2
-MainStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-MainStroke.Parent = MainFrame
-
-local function animateRainbowStroke(stroke)
-    local hue = 0
-    RunService.RenderStepped:Connect(function(dt)
-        hue = (hue + dt * 0.1) % 1
-        stroke.Color = Color3.fromHSV(hue, 0.8, 1)
-    end)
-end
-animateRainbowStroke(MainStroke)
-
--- Gradient Background
-local gradientLabel = Instance.new("TextLabel")
-gradientLabel.Name = "Gradient"
-gradientLabel.Size = UDim2.new(1, 0, 1, 0)
-gradientLabel.BackgroundTransparency = 1
-gradientLabel.Text = ""
-gradientLabel.Parent = MainFrame
-local gradient = Instance.new("UIGradient")
-gradient.Color = ColorSequence.new{
-    ColorSequenceKeypoint.new(0, Color3.fromRGB(30, 20, 60)),
-    ColorSequenceKeypoint.new(1, Color3.fromRGB(60, 20, 80))
-}
-gradient.Parent = gradientLabel
-
-local TopBar = Instance.new("Frame")
-TopBar.Name = "TopBar"
-TopBar.Size = UDim2.new(1, 0, 0, 45)
-TopBar.BackgroundColor3 = Color3.fromRGB(10, 5, 20)
-TopBar.BackgroundTransparency = 0.3
-TopBar.BorderSizePixel = 0
-TopBar.Parent = MainFrame
-
-local TitleLabel = Instance.new("TextLabel")
-TitleLabel.Size = UDim2.new(0.7, 0, 1, 0)
-TitleLabel.Position = UDim2.new(0, 15, 0, 0)
-TitleLabel.BackgroundTransparency = 1
-TitleLabel.Text = "⚛ NUCLEAR LABS v3.1"
-TitleLabel.TextColor3 = Color3.fromRGB(255, 100, 200)
-TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
-TitleLabel.Font = Enum.Font.GothamBold
-TitleLabel.TextSize = 20
-TitleLabel.Parent = TopBar
-
-local MinimizeButton = Instance.new("TextButton")
-MinimizeButton.Size = UDim2.new(0, 40, 0, 30)
-MinimizeButton.Position = UDim2.new(1, -90, 0.5, -15)
-MinimizeButton.BackgroundColor3 = Color3.fromRGB(50, 50, 70)
-MinimizeButton.Text = "_"
-MinimizeButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-MinimizeButton.Font = Enum.Font.GothamBold
-MinimizeButton.TextSize = 16
-MinimizeButton.Parent = TopBar
-
-local MinCorner = Instance.new("UICorner")
-MinCorner.CornerRadius = UDim.new(0, 8)
-MinCorner.Parent = MinimizeButton
-
-local CloseButton = Instance.new("TextButton")
-CloseButton.Size = UDim2.new(0, 40, 0, 30)
-CloseButton.Position = UDim2.new(1, -45, 0.5, -15)
-CloseButton.BackgroundColor3 = Color3.fromRGB(120, 30, 30)
-CloseButton.Text = "✕"
-CloseButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-CloseButton.Font = Enum.Font.GothamBold
-CloseButton.TextSize = 16
-CloseButton.Parent = TopBar
-
-local CloseCorner = Instance.new("UICorner")
-CloseCorner.CornerRadius = UDim.new(0, 8)
-CloseCorner.Parent = CloseButton
-
-MainFrame.Visible = false
-Blur.Size = 0
-
---================================================--
--- KEY SYSTEM
---================================================--
-local KeyFrame = Instance.new("Frame")
-KeyFrame.Name = "KeyFrame"
-KeyFrame.Size = UDim2.new(0, 350, 0, 180)
-KeyFrame.Position = UDim2.new(0.5, -175, 0.5, -90)
-KeyFrame.BackgroundColor3 = Color3.fromRGB(10, 10, 20)
-KeyFrame.BackgroundTransparency = 0.05
-KeyFrame.BorderSizePixel = 0
-KeyFrame.Active = true
-KeyFrame.Parent = ScreenGui
-
-local KeyCorner = Instance.new("UICorner")
-KeyCorner.CornerRadius = UDim.new(0, 12)
-KeyCorner.Parent = KeyFrame
-
-local KeyStroke = Instance.new("UIStroke")
-KeyStroke.Thickness = 2
-KeyStroke.Color = Color3.fromRGB(255, 100, 200)
-KeyStroke.Parent = KeyFrame
-animateRainbowStroke(KeyStroke)
-
-local KeyLabel = Instance.new("TextLabel")
-KeyLabel.Size = UDim2.new(1, 0, 0, 45)
-KeyLabel.Position = UDim2.new(0, 0, 0, 10)
-KeyLabel.BackgroundTransparency = 1
-KeyLabel.Text = "🔐 ACCESS KEY"
-KeyLabel.TextColor3 = Color3.fromRGB(255, 100, 200)
-KeyLabel.Font = Enum.Font.GothamBold
-KeyLabel.TextSize = 20
-KeyLabel.Parent = KeyFrame
-
-local KeyBox = Instance.new("TextBox")
-KeyBox.Size = UDim2.new(0.85, 0, 0, 35)
-KeyBox.Position = UDim2.new(0.075, 0, 0, 60)
-KeyBox.BackgroundColor3 = Color3.fromRGB(30, 30, 45)
-KeyBox.PlaceholderText = "Enter key..."
-KeyBox.Text = ""
-KeyBox.TextColor3 = Color3.fromRGB(255, 255, 255)
-KeyBox.Font = Enum.Font.Gotham
-KeyBox.TextSize = 14
-KeyBox.Parent = KeyFrame
-
-local KeyBoxCorner = Instance.new("UICorner")
-KeyBoxCorner.CornerRadius = UDim.new(0, 8)
-KeyBoxCorner.Parent = KeyBox
-
-local KeyStatus = Instance.new("TextLabel")
-KeyStatus.Size = UDim2.new(1, 0, 0, 24)
-KeyStatus.Position = UDim2.new(0, 0, 0, 100)
-KeyStatus.BackgroundTransparency = 1
-KeyStatus.Text = ""
-KeyStatus.TextColor3 = Color3.fromRGB(255, 255, 255)
-KeyStatus.Font = Enum.Font.GothamBold
-KeyStatus.TextSize = 14
-KeyStatus.Parent = KeyFrame
-
-local KeyButton = Instance.new("TextButton")
-KeyButton.Size = UDim2.new(0.5, 0, 0, 32)
-KeyButton.Position = UDim2.new(0.25, 0, 0, 130)
-KeyButton.BackgroundColor3 = Color3.fromRGB(100, 50, 150)
-KeyButton.Text = "SUBMIT"
-KeyButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-KeyButton.Font = Enum.Font.GothamBold
-KeyButton.TextSize = 14
-KeyButton.Parent = KeyFrame
-
-local KeyButtonCorner = Instance.new("UICorner")
-KeyButtonCorner.CornerRadius = UDim.new(0, 8)
-KeyButtonCorner.Parent = KeyButton
-
-local function keyAccessAnimation(success)
-    if success then
-        KeyStatus.Text = "✓ ACCESS GRANTED"
-        KeyStatus.TextColor3 = Color3.fromRGB(80, 200, 80)
-        TweenService:Create(KeyFrame, TweenInfo.new(0.3), {BackgroundColor3 = Color3.fromRGB(20, 40, 20)}):Play()
-        playSound(SoundIds.CorrectKey, 1)
-    else
-        KeyStatus.Text = "✗ ACCESS DENIED"
-        KeyStatus.TextColor3 = Color3.fromRGB(200, 80, 80)
-        TweenService:Create(KeyFrame, TweenInfo.new(0.3), {BackgroundColor3 = Color3.fromRGB(40, 20, 20)}):Play()
-        playSound(SoundIds.WrongKey, 1)
-    end
-end
-
-KeyButton.MouseButton1Click:Connect(function()
-    playSound(SoundIds.ButtonClick, 0.7)
-    local key = KeyBox.Text
-    if key == "nuclear_labs_AFO" then
-        keyAccessAnimation(true)
-        notify("Nuclear Labs", "🔓 Welcome Back", 3)
-        wait(0.5)
-        TweenService:Create(KeyFrame, TweenInfo.new(0.3), {BackgroundTransparency = 1}):Play()
-        wait(0.3)
-        KeyFrame:Destroy()
-        MainFrame.Visible = true
-        Blur.Size = 10
-    else
-        keyAccessAnimation(false)
-        notify("Nuclear Labs", "Invalid Key", 3)
-        local flashTween = TweenService:Create(KeyFrame, TweenInfo.new(0.15), {BackgroundColor3 = Color3.fromRGB(80, 20, 20)})
-        flashTween:Play()
-        flashTween.Completed:Wait()
-        TweenService:Create(KeyFrame, TweenInfo.new(0.15), {BackgroundColor3 = Color3.fromRGB(10, 10, 20)}):Play()
-    end
+createToggle(movementPage, "✈️ Fly", false, function(state)
+    if state then startFly() else stopFly() end
 end)
 
---================================================--
--- TABS & CONTENT
---================================================--
-local TabsFrame = Instance.new("Frame")
-TabsFrame.Size = UDim2.new(0, 160, 1, -45)
-TabsFrame.Position = UDim2.new(0, 0, 0, 45)
-TabsFrame.BackgroundTransparency = 1
-TabsFrame.Parent = MainFrame
-
-local TabsList = Instance.new("UIListLayout")
-TabsList.FillDirection = Enum.FillDirection.Vertical
-TabsList.Padding = UDim.new(0, 5)
-TabsList.Parent = TabsFrame
-
-local TabNames = {
-    "Welcome", "Movement", "Fling", "Troll", "Visual",
-    "Vehicle", "Physics", "QoL", "Combat", "Spam",
-    "Misc", "Settings"
-}
-
-local TabButtons = {}
-local ContentFrames = {}
-
-local ContentHolder = Instance.new("Frame")
-ContentHolder.Size = UDim2.new(1, -160, 1, -45)
-ContentHolder.Position = UDim2.new(0, 160, 0, 45)
-ContentHolder.BackgroundTransparency = 1
-ContentHolder.Parent = MainFrame
-
-local function createTabButton(name)
-    local btn = Instance.new("TextButton")
-    btn.Name = name .. "Tab"
-    btn.Size = UDim2.new(1, -10, 0, 35)
-    btn.BackgroundColor3 = Color3.fromRGB(40, 25, 55)
-    btn.Text = name
-    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    btn.Font = Enum.Font.GothamBold
-    btn.TextSize = 13
-    btn.Parent = TabsFrame
-
-    local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 8)
-    corner.Parent = btn
-
-    TabButtons[name] = btn
-end
-
-local function createContentFrame(name)
-    local frame = Instance.new("ScrollingFrame")
-    frame.Name = name .. "Content"
-    frame.Size = UDim2.new(1, 0, 1, 0)
-    frame.CanvasSize = UDim2.new(0, 0, 0, 0)
-    frame.ScrollBarThickness = 8
-    frame.BackgroundTransparency = 1
-    frame.Visible = false
-    frame.Parent = ContentHolder
-
-    local layout = Instance.new("UIListLayout")
-    layout.FillDirection = Enum.FillDirection.Vertical
-    layout.Padding = UDim.new(0, 8)
-    layout.Parent = frame
-
-    ContentFrames[name] = frame
-end
-
-for _, name in ipairs(TabNames) do
-    createTabButton(name)
-    createContentFrame(name)
-end
-
-local function setActiveTab(name)
-    for tabName, frame in pairs(ContentFrames) do
-        frame.Visible = (tabName == name)
-    end
-    for tabName, btn in pairs(TabButtons) do
-        if tabName == name then
-            TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(100, 60, 150)}):Play()
-        else
-            TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(40, 25, 55)}):Play()
-        end
-    end
-end
-
-for name, btn in pairs(TabButtons) do
-    btn.MouseButton1Click:Connect(function()
-        playSound(SoundIds.ButtonClick, 0.6)
-        setActiveTab(name)
-    end)
-end
-
-setActiveTab("Welcome")
-
-local minimized = false
-MinimizeButton.MouseButton1Click:Connect(function()
-    playSound(SoundIds.ButtonClick, 0.7)
-    minimized = not minimized
-    if minimized then
-        TweenService:Create(MainFrame, TweenInfo.new(0.25), {Size = UDim2.new(0, 800, 0, 45)}):Play()
-        ContentHolder.Visible = false
-        Blur.Size = 0
-    else
-        TweenService:Create(MainFrame, TweenInfo.new(0.25), {Size = UDim2.new(0, 800, 0, 500)}):Play()
-        ContentHolder.Visible = true
-        Blur.Size = 10
-    end
+createToggle(movementPage, "👻 Noclip", false, function(state)
+    if state then startNoclip() else stopNoclip() end
 end)
 
-local uiVisible = true
-CloseButton.MouseButton1Click:Connect(function()
-    playSound(SoundIds.ButtonClick, 0.7)
-    uiVisible = false
-    MainFrame.Visible = false
-    Blur.Size = 0
-end)
-
-UserInputService.InputBegan:Connect(function(input, gp)
-    if gp then return end
-    if input.KeyCode == Enum.KeyCode.RightControl then
-        uiVisible = not uiVisible
-        MainFrame.Visible = uiVisible
-        Blur.Size = uiVisible and 10 or 0
-    end
-end)
-
---================================================--
--- UI HELPERS
---================================================--
-local function createToggle(parent, labelText, defaultState, callback)
-    local container = Instance.new("Frame")
-    container.Size = UDim2.new(1, -20, 0, 35)
-    container.BackgroundTransparency = 1
-    container.Parent = parent
-
-    local label = Instance.new("TextLabel")
-    label.Size = UDim2.new(0.65, 0, 1, 0)
-    label.BackgroundTransparency = 1
-    label.Text = labelText
-    label.TextColor3 = Color3.fromRGB(255, 255, 255)
-    label.Font = Enum.Font.Gotham
-    label.TextSize = 13
-    label.TextXAlignment = Enum.TextXAlignment.Left
-    label.Parent = container
-
-    local button = Instance.new("TextButton")
-    button.Size = UDim2.new(0.35, -10, 1, 0)
-    button.Position = UDim2.new(0.65, 10, 0, 0)
-    button.BackgroundColor3 = defaultState and Color3.fromRGB(80, 200, 100) or Color3.fromRGB(60, 60, 80)
-    button.Text = defaultState and "ON" or "OFF"
-    button.TextColor3 = Color3.fromRGB(255, 255, 255)
-    button.Font = Enum.Font.GothamBold
-    button.TextSize = 12
-    button.Parent = container
-
-    local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 6)
-    corner.Parent = button
-
-    local state = defaultState
-
-    button.MouseButton1Click:Connect(function()
-        playSound(SoundIds.ButtonClick, 0.6)
-        state = not state
-        button.Text = state and "ON" or "OFF"
-        local targetColor = state and Color3.fromRGB(80, 200, 100) or Color3.fromRGB(60, 60, 80)
-        TweenService:Create(button, TweenInfo.new(0.15), {BackgroundColor3 = targetColor}):Play()
-        if callback then callback(state) end
-    end)
-
-    return container
-end
-
-local function createSlider(parent, labelText, minValue, maxValue, defaultValue, callback)
-    local container = Instance.new("Frame")
-    container.Size = UDim2.new(1, -20, 0, 55)
-    container.BackgroundTransparency = 1
-    container.Parent = parent
-
-    local label = Instance.new("TextLabel")
-    label.Size = UDim2.new(1, 0, 0.45, 0)
-    label.BackgroundTransparency = 1
-    label.Text = labelText .. " (" .. tostring(defaultValue) .. ")"
-    label.TextColor3 = Color3.fromRGB(255, 255, 255)
-    label.Font = Enum.Font.Gotham
-    label.TextSize = 12
-    label.TextXAlignment = Enum.TextXAlignment.Left
-    label.Parent = container
-
-    local bar = Instance.new("Frame")
-    bar.Size = UDim2.new(1, -20, 0, 6)
-    bar.Position = UDim2.new(0, 10, 0.5, 2)
-    bar.BackgroundColor3 = Color3.fromRGB(50, 50, 70)
-    bar.BorderSizePixel = 0
-    bar.Parent = container
-
-    local barCorner = Instance.new("UICorner")
-    barCorner.CornerRadius = UDim.new(0, 3)
-    barCorner.Parent = bar
-
-    local knob = Instance.new("Frame")
-    knob.Size = UDim2.new(0, 12, 0, 12)
-    knob.Position = UDim2.new((defaultValue - minValue) / (maxValue - minValue), -6, 0.5, -6)
-    knob.BackgroundColor3 = Color3.fromRGB(100, 200, 255)
-    knob.BorderSizePixel = 0
-    knob.Parent = bar
-
-    local knobCorner = Instance.new("UICorner")
-    knobCorner.CornerRadius = UDim.new(1, 0)
-    knobCorner.Parent = knob
-
-    local dragging = false
-
-    local function updateFromX(x)
-        local rel = math.clamp((x - bar.AbsolutePosition.X) / bar.AbsoluteSize.X, 0, 1)
-        local value = math.floor(minValue + (maxValue - minValue) * rel)
-        knob.Position = UDim2.new(rel, -6, 0.5, -6)
-        label.Text = labelText .. " (" .. tostring(value) .. ")"
-        if callback then callback(value) end
-    end
-
-    knob.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then dragging = true end
-    end)
-
-    knob.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then dragging = false end
-    end)
-
-    bar.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            dragging = true
-            updateFromX(input.Position.X)
-        end
-    end)
-
-    UserInputService.InputChanged:Connect(function(input)
-        if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
-            updateFromX(input.Position.X)
-        end
-    end)
-
-    return container
-end
-
---================================================--
--- WELCOME TAB
---================================================--
-do
-    local welcomeFrame = ContentFrames["Welcome"]
-    
-    local welcomeLabel = Instance.new("TextLabel")
-    welcomeLabel.Size = UDim2.new(1, -20, 0, 50)
-    welcomeLabel.Position = UDim2.new(0, 10, 0, 10)
-    welcomeLabel.BackgroundTransparency = 1
-    welcomeLabel.Text = "🎮 NUCLEAR LABS v3.1"
-    welcomeLabel.TextColor3 = Color3.fromRGB(255, 100, 200)
-    welcomeLabel.Font = Enum.Font.GothamBold
-    welcomeLabel.TextSize = 22
-    welcomeLabel.TextXAlignment = Enum.TextXAlignment.Center
-    welcomeLabel.Parent = welcomeFrame
-
-    local descLabel = Instance.new("TextLabel")
-    descLabel.Size = UDim2.new(1, -20, 0, 100)
-    descLabel.Position = UDim2.new(0, 10, 0, 65)
-    descLabel.BackgroundTransparency = 1
-    descLabel.Text = "Welcome, " .. LocalPlayer.Name .. "!\n\n✨ Ultimate Admin Menu with:\n🎯 Advanced Flinging • 😂 Epic Trolling\n👻 FE Player Collisions • 🚀 Quality of Life\n🎨 Visuals & Customization"
-    descLabel.TextWrapped = true
-    descLabel.TextColor3 = Color3.fromRGB(200, 200, 220)
-    descLabel.Font = Enum.Font.Gotham
-    descLabel.TextSize = 13
-    descLabel.TextXAlignment = Enum.TextXAlignment.Center
-    descLabel.Parent = welcomeFrame
-end
-
---================================================--
--- MOVEMENT TAB
---================================================--
-do
-    local movementFrame = ContentFrames["Movement"]
-
-    local flyConnection
-    local flySpeed = 60
-    local flyVelocity = Vector3.new(0, 0, 0)
-
-    local function setFlyEnabled(enabled)
-        MovementState.Fly = enabled
-        if enabled then
-            notify("Movement", "✈️ Fly enabled", 2)
-            if flyConnection then flyConnection:Disconnect() end
-            flyVelocity = Vector3.new(0, 0, 0)
-            flyConnection = RunService.RenderStepped:Connect(function(dt)
-                local char = safeGetCharacter()
-                local root = getRoot(char)
-                if not root then return end
-                
-                local camCF = Camera.CFrame
-                local lookVector = camCF.LookVector
-                local upVector = camCF.UpVector
-                local rightVector = camCF.RightVector
-                
-                local moveDir = Vector3.new(0, 0, 0)
-                if UserInputService:IsKeyDown(Enum.KeyCode.W) then moveDir = moveDir + lookVector end
-                if UserInputService:IsKeyDown(Enum.KeyCode.S) then moveDir = moveDir - lookVector end
-                if UserInputService:IsKeyDown(Enum.KeyCode.A) then moveDir = moveDir - rightVector end
-                if UserInputService:IsKeyDown(Enum.KeyCode.D) then moveDir = moveDir + rightVector end
-                if UserInputService:IsKeyDown(Enum.KeyCode.Space) then moveDir = moveDir + upVector end
-                if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then moveDir = moveDir - upVector end
-                
-                if moveDir.Magnitude > 0 then
-                    flyVelocity = moveDir.Unit * flySpeed
-                else
-                    flyVelocity = flyVelocity * 0.9
-                end
-                
-                root.AssemblyLinearVelocity = flyVelocity
-                root.CFrame = CFrame.new(root.Position, root.Position + camCF.LookVector)
-            end)
-        else
-            if flyConnection then flyConnection:Disconnect() end
-            flyConnection = nil
-            local root = getRoot()
-            if root then root.AssemblyLinearVelocity = Vector3.new(0, 0, 0) end
-            notify("Movement", "✈️ Fly disabled", 2)
-        end
-    end
-
-    local noclipConnection
-    local function setNoclipEnabled(enabled)
-        MovementState.Noclip = enabled
-        local char = safeGetCharacter()
-        if enabled then
-            notify("Movement", "👻 Noclip enabled", 2)
-            if noclipConnection then noclipConnection:Disconnect() end
-            noclipConnection = RunService.Stepped:Connect(function()
-                char = safeGetCharacter()
-                for _, part in ipairs(char:GetDescendants()) do
-                    if part:IsA("BasePart") then
-                        part.CanCollide = false
-                    end
-                end
-            end)
-        else
-            notify("Movement", "👻 Noclip disabled", 2)
-            if noclipConnection then noclipConnection:Disconnect() end
-            noclipConnection = nil
-            for _, part in ipairs(char:GetDescendants()) do
-                if part:IsA("BasePart") then
-                    part.CanCollide = true
-                end
-            end
-        end
-    end
-
-    local godModeConnection
-    local function setGodModeEnabled(enabled)
-        MovementState.GodMode = enabled
-        if enabled then
-            notify("Movement", "🛡️ God Mode enabled", 2)
-            if godModeConnection then godModeConnection:Disconnect() end
-            godModeConnection = RunService.Heartbeat:Connect(function()
-                local humanoid = getHumanoid()
-                if humanoid then humanoid.Health = humanoid.MaxHealth end
-            end)
-        else
-            notify("Movement", "🛡️ God Mode disabled", 2)
-            if godModeConnection then godModeConnection:Disconnect() end
-            godModeConnection = nil
-        end
-    end
-
-    UserInputService.JumpRequest:Connect(function()
-        if MovementState.InfiniteJump then
-            local humanoid = getHumanoid()
-            if humanoid then
-                humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
-            end
-        end
-    end)
-
-    createToggle(movementFrame, "✈️ Fly", false, setFlyEnabled)
-    createToggle(movementFrame, "👻 Noclip", false, setNoclipEnabled)
-    createToggle(movementFrame, "🦘 Infinite Jump", false, function(state)
-        MovementState.InfiniteJump = state
-        notify("Movement", "🦘 Infinite Jump " .. (state and "ON" or "OFF"), 2)
-    end)
-    createToggle(movementFrame, "⚡ Speed Enabled", false, function(state)
-        MovementState.SpeedEnabled = state
-    end)
-    createToggle(movementFrame, "🛡️ God Mode", false, setGodModeEnabled)
-    createToggle(movementFrame, "🤝 Player Collisions", true, setPlayerCollisionsEnabled)
-
-    createSlider(movementFrame, "⚡ Speed", 16, 200, 16, function(val)
+createToggle(movementPage, "⚡ Speed", false, function(state)
+    State.Speed = state
+    if state then
         local humanoid = getHumanoid()
-        if humanoid and MovementState.SpeedEnabled then
-            humanoid.WalkSpeed = val
+        if humanoid then humanoid.WalkSpeed = Values.WalkSpeed end
+    else
+        local humanoid = getHumanoid()
+        if humanoid then humanoid.WalkSpeed = 16 end
+    end
+end)
+
+createToggle(movementPage, "🛡️ God Mode", false, function(state)
+    if state then startGodMode() else stopGodMode() end
+end)
+
+createToggle(movementPage, "🦘 Infinite Jump", false, function(state)
+    State.InfiniteJump = state
+    Status.Text = state and "🟢 Infinite Jump ON" or "🔴 Infinite Jump OFF"
+end)
+
+createToggle(movementPage, "🤝 Player Collisions", true, setPlayerCollisions)
+
+createSlider(movementPage, "⚡ Walk Speed", 16, 300, 16, setSpeed)
+
+createSlider(movementPage, "✈️ Fly Speed", 20, 200, 60, function(val)
+    Values.FlySpeed = val
+end)
+
+--================================================--
+-- COMBAT TAB
+--================================================--
+local combatPage = ContentPages["Combat"]
+
+-- CLICK FLING
+local clickFlingActive = false
+UserInputService.InputBegan:Connect(function(input, gp)
+    if gp or not clickFlingActive then return end
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        local camera = Camera
+        local ray = camera:ScreenPointToRay(mouse.X, mouse.Y)
+        
+        local params = RaycastParams.new()
+        params.FilterType = Enum.RaycastFilterType.Whitelist
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr ~= LocalPlayer and plr.Character then
+                table.insert(params.FilterDescendantsInstances, plr.Character)
+            end
+        end
+        
+        local result = Workspace:Raycast(ray.Origin, ray.Direction * 1000, params)
+        if result then
+            local part = result.Instance
+            local humanoid = part.Parent:FindFirstChildOfClass("Humanoid")
+            if humanoid then
+                local root = part.Parent:FindFirstChild("HumanoidRootPart")
+                if root then
+                    root.AssemblyLinearVelocity = camera.CFrame.LookVector * Values.FlingForce
+                    playSound(SoundIds.Success, 0.7)
+                end
+            end
+        end
+    end
+end)
+
+-- PROXIMITY FLING
+local function startProximityFling()
+    if State.ProximityFling then return end
+    State.ProximityFling = true
+    Status.Text = "🟢 Proximity Fling ON"
+    
+    if Connections.ProximityFling then Connections.ProximityFling:Disconnect() end
+    
+    Connections.ProximityFling = RunService.Heartbeat:Connect(function()
+        for _, plr in ipairs(getNearbyPlayers(Values.ProximityRadius)) do
+            local root = plr.Character:FindFirstChild("HumanoidRootPart")
+            if root then
+                local myRoot = getRoot()
+                if myRoot then
+                    local dir = (root.Position - myRoot.Position).Unit
+                    root.AssemblyLinearVelocity = dir * Values.FlingForce
+                end
+            end
         end
     end)
 end
 
---================================================--
--- FLING TAB
---================================================--
-do
-    local flingFrame = ContentFrames["Fling"]
+local function stopProximityFling()
+    State.ProximityFling = false
+    if Connections.ProximityFling then Connections.ProximityFling:Disconnect() end
+    Status.Text = "🔴 Proximity Fling OFF"
+end
 
-    local function setTouchFlingEnabled(enabled)
-        FlingState.TouchFling = enabled
-        if enabled then
-            notify("Fling", "👋 Touch Fling activated", 2)
-        else
-            notify("Fling", "👋 Touch Fling deactivated", 2)
-        end
-    end
-
-    local clickFlingActive = false
-    local function setClickFlingEnabled(enabled)
-        FlingState.ClickFling = enabled
-        clickFlingActive = enabled
-        if enabled then
-            notify("Fling", "🖱️ Click Fling activated", 2)
-        else
-            notify("Fling", "🖱️ Click Fling deactivated", 2)
-        end
-    end
-
-    UserInputService.InputBegan:Connect(function(input, gp)
-        if gp then return end
-        if clickFlingActive and input.UserInputType == Enum.UserInputType.MouseButton1 then
-            local mousePos = input.Position
-            local ray = Camera:ScreenPointToRay(mousePos.X, mousePos.Y)
-            local params = RaycastParams.new()
-            params.FilterType = Enum.RaycastFilterType.Whitelist
-            for _, plr in ipairs(Players:GetPlayers()) do
-                if plr ~= LocalPlayer and plr.Character then
-                    table.insert(params.FilterDescendantsInstances, plr.Character)
-                end
-            end
-            local result = Workspace:Raycast(ray.Origin, ray.Direction * 500, params)
-            if result then
-                local part = result.Instance
-                local humanoid = part.Parent:FindFirstChildOfClass("Humanoid")
-                if humanoid then
-                    local root = part.Parent:FindFirstChild("HumanoidRootPart")
-                    if root then
-                        root.AssemblyLinearVelocity = Camera.CFrame.LookVector * FlingState.FlingForce
-                        playSound(SoundIds.TrollSuccess, 0.8)
-                    end
-                end
-            end
-        end
-    end)
-
-    local proximityFlingConnection
-    local function setProximityFlingEnabled(enabled)
-        FlingState.ProximityFling = enabled
-        if enabled then
-            notify("Fling", "📍 Proximity Fling enabled", 2)
-            if proximityFlingConnection then proximityFlingConnection:Disconnect() end
-            proximityFlingConnection = RunService.Heartbeat:Connect(function()
-                local nearbyPlayers = getNearbyPlayers(FlingState.ProximityRadius)
-                for _, plr in ipairs(nearbyPlayers) do
-                    local root = plr.Character:FindFirstChild("HumanoidRootPart")
-                    if root then
-                        local direction = (root.Position - getRoot().Position).Unit
-                        root.AssemblyLinearVelocity = direction * FlingState.FlingForce
-                    end
-                end
-            end)
-        else
-            notify("Fling", "📍 Proximity Fling disabled", 2)
-            if proximityFlingConnection then proximityFlingConnection:Disconnect() end
-            proximityFlingConnection = nil
-        end
-    end
-
-    local touchFlingConnection
-    RunService.Heartbeat:Connect(function()
-        if FlingState.TouchFling then
-            local char = safeGetCharacter()
-            local root = getRoot(char)
-            if root then
-                local humanoids = root:GetTouchingParts()
-                for _, part in ipairs(humanoids) do
-                    if part.Parent and part.Parent ~= char then
-                        local humanoid = part.Parent:FindFirstChildOfClass("Humanoid")
-                        if humanoid then
-                            local targetRoot = part.Parent:FindFirstChild("HumanoidRootPart")
-                            if targetRoot then
-                                local direction = (targetRoot.Position - root.Position).Unit
-                                targetRoot.AssemblyLinearVelocity = direction * FlingState.FlingForce
-                            end
+-- TOUCH FLING
+local function startTouchFling()
+    if State.TouchFling then return end
+    State.TouchFling = true
+    Status.Text = "🟢 Touch Fling ON"
+    
+    if Connections.TouchFling then Connections.TouchFling:Disconnect() end
+    
+    Connections.TouchFling = RunService.Heartbeat:Connect(function()
+        local char = safeGetCharacter()
+        local root = getRoot(char)
+        if root then
+            local touching = root:GetTouchingParts()
+            for _, part in ipairs(touching) do
+                if part.Parent and part.Parent ~= char then
+                    local humanoid = part.Parent:FindFirstChildOfClass("Humanoid")
+                    if humanoid then
+                        local targetRoot = part.Parent:FindFirstChild("HumanoidRootPart")
+                        if targetRoot then
+                            local dir = (targetRoot.Position - root.Position).Unit
+                            targetRoot.AssemblyLinearVelocity = dir * Values.FlingForce
                         end
                     end
                 end
             end
         end
     end)
-
-    createToggle(flingFrame, "👋 Touch Fling", false, setTouchFlingEnabled)
-    createToggle(flingFrame, "🖱️ Click Fling", false, setClickFlingEnabled)
-    createToggle(flingFrame, "📍 Proximity Fling", false, setProximityFlingEnabled)
-    createSlider(flingFrame, "💪 Fling Force", 50, 500, 100, function(val)
-        FlingState.FlingForce = val
-    end)
-    createSlider(flingFrame, "📍 Fling Radius", 10, 100, 30, function(val)
-        FlingState.ProximityRadius = val
-    end)
 end
 
---================================================--
--- TROLL TAB
---================================================--
-do
-    local trollFrame = ContentFrames["Troll"]
-
-    local spinbotConnection
-    local function setSpinbotEnabled(enabled)
-        TrollState.Spinbot = enabled
-        if enabled then
-            notify("Troll", "🌪️ Spinbot enabled", 2)
-            if spinbotConnection then spinbotConnection:Disconnect() end
-            spinbotConnection = RunService.RenderStepped:Connect(function()
-                local root = getRoot()
-                if root then
-                    root.CFrame = root.CFrame * CFrame.Angles(0, math.rad(15), 0)
-                end
-            end)
-        else
-            if spinbotConnection then spinbotConnection:Disconnect() end
-            notify("Troll", "🌪️ Spinbot disabled", 2)
-        end
-    end
-
-    local function performExplosionRing(radius)
-        local root = getRoot()
-        if not root then return end
-        playSound(SoundIds.TrollSuccess, 1)
-        local parts = getNearbyUnanchoredParts(radius)
-        for _, part in ipairs(parts) do
-            if part.Parent and part.Parent:FindFirstChildOfClass("Humanoid") then
-                if part.Parent == LocalPlayer.Character then continue end
-            end
-            if part:IsA("BasePart") then
-                local direction = (part.Position - root.Position).Unit
-                part.AssemblyLinearVelocity = direction * 150
-            end
-        end
-    end
-
-    createToggle(trollFrame, "🌪️ Spinbot", false, setSpinbotEnabled)
-    createToggle(trollFrame, "💥 Explosion Ring", false, function(state)
-        if state then performExplosionRing(150) end
-    end)
-    createToggle(trollFrame, "😂 Lag Switcher", false, function(state)
-        TrollState.LagSwitch = state
-        notify("Troll", "😂 Lag Switch " .. (state and "ON" or "OFF"), 2)
-    end)
+local function stopTouchFling()
+    State.TouchFling = false
+    if Connections.TouchFling then Connections.TouchFling:Disconnect() end
+    Status.Text = "🔴 Touch Fling OFF"
 end
 
---================================================--
--- VISUAL TAB
---================================================--
-do
-    local visualFrame = ContentFrames["Visual"]
+createToggle(combatPage, "🖱️ Click Fling", false, function(state)
+    clickFlingActive = state
+    Status.Text = state and "🟢 Click Fling armed" or "🔴 Click Fling disarmed"
+end)
 
-    local fullbrightConnection
-    local function setFullbrightEnabled(enabled)
-        VisualState.Fullbright = enabled
-        if enabled then
-            notify("Visual", "☀️ Fullbright enabled", 2)
-            if fullbrightConnection then fullbrightConnection:Disconnect() end
-            Lighting.Ambient = Color3.fromRGB(255, 255, 255)
-            Lighting.OutdoorAmbient = Color3.fromRGB(255, 255, 255)
-            fullbrightConnection = RunService.Heartbeat:Connect(function()
-                Lighting.Ambient = Color3.fromRGB(255, 255, 255)
-                Lighting.OutdoorAmbient = Color3.fromRGB(255, 255, 255)
-            end)
-        else
-            if fullbrightConnection then fullbrightConnection:Disconnect() end
-            Lighting.Ambient = Color3.fromRGB(200, 200, 200)
-            Lighting.OutdoorAmbient = Color3.fromRGB(200, 200, 200)
-            notify("Visual", "☀️ Fullbright disabled", 2)
-        end
-    end
+createToggle(combatPage, "👋 Touch Fling", false, function(state)
+    if state then startTouchFling() else stopTouchFling() end
+end)
 
-    local nightVisionConnection
-    local function setNightVisionEnabled(enabled)
-        VisualState.NightVision = enabled
-        if enabled then
-            notify("Visual", "🌙 Night Vision enabled", 2)
-            if nightVisionConnection then nightVisionConnection:Disconnect() end
-            Camera.FieldOfView = 80
-            nightVisionConnection = RunService.RenderStepped:Connect(function()
-                Lighting.Ambient = Color3.fromRGB(0, 255, 0)
-                Lighting.OutdoorAmbient = Color3.fromRGB(0, 255, 0)
-            end)
-        else
-            if nightVisionConnection then nightVisionConnection:Disconnect() end
-            Camera.FieldOfView = 70
-            Lighting.Ambient = Color3.fromRGB(200, 200, 200)
-            Lighting.OutdoorAmbient = Color3.fromRGB(200, 200, 200)
-            notify("Visual", "🌙 Night Vision disabled", 2)
-        end
-    end
+createToggle(combatPage, "📍 Proximity Fling", false, function(state)
+    if state then startProximityFling() else stopProximityFling() end
+end)
 
-    createToggle(visualFrame, "☀️ Fullbright", false, setFullbrightEnabled)
-    createToggle(visualFrame, "🌙 Night Vision", false, setNightVisionEnabled)
-    createSlider(visualFrame, "📺 FOV", 30, 120, 70, function(val)
-        Camera.FieldOfView = val
-    end)
-end
+createSlider(combatPage, "💪 Fling Force", 50, 500, 150, function(val)
+    Values.FlingForce = val
+end)
 
---================================================--
--- QoL TAB
---================================================--
-do
-    local qolFrame = ContentFrames["QoL"]
-
-    local function teleportToPlayer()
-        local plr = getRandomPlayer(true)
-        if plr and plr.Character then
-            local root = getRoot()
-            local targetRoot = plr.Character:FindFirstChild("HumanoidRootPart")
-            if root and targetRoot then
-                root.CFrame = targetRoot.CFrame + Vector3.new(0, 3, 0)
-                notify("QoL", "🌍 Teleported to " .. plr.Name, 2)
-            end
-        end
-    end
-
-    local teleportButton = Instance.new("TextButton")
-    teleportButton.Size = UDim2.new(1, -20, 0, 40)
-    teleportButton.Position = UDim2.new(0, 10, 0, 0)
-    teleportButton.BackgroundColor3 = Color3.fromRGB(100, 60, 150)
-    teleportButton.Text = "🌍 Teleport to Random Player"
-    teleportButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-    teleportButton.Font = Enum.Font.GothamBold
-    teleportButton.TextSize = 13
-    teleportButton.Parent = qolFrame
-
-    local tpCorner = Instance.new("UICorner")
-    tpCorner.CornerRadius = UDim.new(0, 8)
-    tpCorner.Parent = teleportButton
-
-    teleportButton.MouseButton1Click:Connect(function()
-        playSound(SoundIds.ButtonClick, 0.7)
-        teleportToPlayer()
-    end)
-
-    createToggle(qolFrame, "🔍 Always Show Names", false, function(state)
-        -- Implementation for showing player names
-    end)
-    createToggle(qolFrame, "📍 Waypoint System", false, function(state)
-        -- Waypoint implementation
-    end)
-end
-
---================================================--
--- VEHICLE TAB
---================================================--
-do
-    local vehicleFrame = ContentFrames["Vehicle"]
-
-    local function setHoverEnabled(enabled)
-        VehicleState.Hover = enabled
-        if enabled then
-            notify("Vehicle", "⬆️ Hover enabled", 2)
-        else
-            notify("Vehicle", "⬆️ Hover disabled", 2)
-        end
-    end
-
-    RunService.Heartbeat:Connect(function()
-        if VehicleState.Hover then
-            local seat = getVehicleSeat()
-            if seat then
-                local currentVel = seat.AssemblyLinearVelocity
-                seat.AssemblyLinearVelocity = Vector3.new(currentVel.X, 0, currentVel.Z)
-            end
-        end
-    end)
-
-    createToggle(vehicleFrame, "⬆️ Hover Mode", false, setHoverEnabled)
-    createToggle(vehicleFrame, "🚀 Nitro", false, function(state)
-        if state then
-            local seat = getVehicleSeat()
-            if seat then
-                seat.AssemblyLinearVelocity = seat.AssemblyLinearVelocity + Camera.CFrame.LookVector * 100
-                notify("Vehicle", "🚀 NITRO!", 1)
-            end
-        end
-    end)
-end
+createSlider(combatPage, "📍 Proximity Radius", 10, 150, 40, function(val)
+    Values.ProximityRadius = val
+end)
 
 --================================================--
 -- PHYSICS TAB
 --================================================--
-do
-    local physicsFrame = ContentFrames["Physics"]
+local physicsPage = ContentPages["Physics"]
 
-    local blackHoleConnection
-    local function setBlackHoleEnabled(enabled)
-        PhysicsState.BlackHole = enabled
-        if enabled then
-            notify("Physics", "🌌 Black Hole enabled", 2)
-            if blackHoleConnection then blackHoleConnection:Disconnect() end
-            blackHoleConnection = RunService.Heartbeat:Connect(function()
-                local root = getRoot()
-                if not root then return end
-                local parts = getNearbyUnanchoredParts(100)
-                for _, part in ipairs(parts) do
-                    if part.Parent and part.Parent:FindFirstChildOfClass("Humanoid") then
-                        if part.Parent == LocalPlayer.Character then continue end
-                    end
-                    local direction = (root.Position - part.Position).Unit
-                    local distance = (root.Position - part.Position).Magnitude
-                    local force = math.clamp(500 / (distance + 1), 0, 200)
-                    if part:IsA("BasePart") then
-                        part.AssemblyLinearVelocity = direction * force
-                    end
-                end
-            end)
-        else
-            if blackHoleConnection then blackHoleConnection:Disconnect() end
-            notify("Physics", "🌌 Black Hole disabled", 2)
+-- ORBIT
+local function startOrbit()
+    if State.Orbit then return end
+    State.Orbit = true
+    Status.Text = "🟢 Orbit mode ON"
+    
+    if Connections.Orbit then Connections.Orbit:Disconnect() end
+    
+    local targetPlayer = nil
+    Connections.Orbit = RunService.RenderStepped:Connect(function()
+        if not targetPlayer or not targetPlayer.Character then
+            targetPlayer = getNearbyPlayers(100)[1]
+            if not targetPlayer then return end
         end
-    end
-
-    createToggle(physicsFrame, "🌌 Black Hole", false, setBlackHoleEnabled)
-    createSlider(physicsFrame, "🌌 Black Hole Radius", 20, 200, 100, function(val)
-        -- Radius control
+        
+        local myRoot = getRoot()
+        local targetRoot = targetPlayer.Character:FindFirstChild("HumanoidRootPart")
+        
+        if myRoot and targetRoot then
+            local angle = tick() * Values.OrbitSpeed
+            local offset = Vector3.new(
+                math.cos(angle) * Values.OrbitRadius,
+                3,
+                math.sin(angle) * Values.OrbitRadius
+            )
+            myRoot.CFrame = CFrame.new(targetRoot.Position + offset, targetRoot.Position)
+        end
     end)
 end
+
+local function stopOrbit()
+    State.Orbit = false
+    if Connections.Orbit then Connections.Orbit:Disconnect() end
+    Status.Text = "🔴 Orbit mode OFF"
+end
+
+-- TELEKINESIS
+local function startTelekinesis()
+    if State.Telekinesis then return end
+    State.Telekinesis = true
+    Status.Text = "🟢 Telekinesis ACTIVE"
+    
+    if Connections.Telekinesis then Connections.Telekinesis:Disconnect() end
+    
+    Connections.Telekinesis = RunService.RenderStepped:Connect(function()
+        local camera = Camera
+        local ray = camera:ScreenPointToRay(mouse.X, mouse.Y)
+        
+        local params = RaycastParams.new()
+        params.FilterType = Enum.RaycastFilterType.Blacklist
+        params.FilterDescendantsInstances = {safeGetCharacter()}
+        
+        local result = Workspace:Raycast(ray.Origin, ray.Direction * 1000, params)
+        if result then
+            local part = result.Instance
+            if part:IsA("BasePart") and not part.Anchored then
+                local targetPos = ray.Origin + ray.Direction * 50
+                part.BodyPosition = part.BodyPosition or Instance.new("BodyPosition")
+                part.BodyPosition.P = 10000
+                part.BodyPosition.D = 500
+                part.BodyPosition.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+                part.BodyPosition.Position = targetPos
+            end
+        end
+    end)
+end
+
+local function stopTelekinesis()
+    State.Telekinesis = false
+    if Connections.Telekinesis then Connections.Telekinesis:Disconnect() end
+    Status.Text = "🔴 Telekinesis OFF"
+end
+
+-- GRAVITY WELL
+local function startGravityWell()
+    if State.Gravity then return end
+    State.Gravity = true
+    Status.Text = "🟢 Gravity Well ACTIVE"
+    
+    if Connections.Gravity then Connections.Gravity:Disconnect() end
+    
+    Connections.Gravity = RunService.Heartbeat:Connect(function()
+        local myRoot = getRoot()
+        if not myRoot then return end
+        
+        for _, part in ipairs(Workspace:GetDescendants()) do
+            if part:IsA("BasePart") and not part.Anchored and part.Parent ~= safeGetCharacter() then
+                local dist = (myRoot.Position - part.Position).Magnitude
+                if dist < 200 then
+                    local dir = (myRoot.Position - part.Position).Unit
+                    local force = math.clamp(5000 / (dist + 1), 0, 200)
+                    if part:FindFirstChild("BodyVelocity") == nil then
+                        local bv = Instance.new("BodyVelocity")
+                        bv.Velocity = Vector3.new(0, 0, 0)
+                        bv.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+                        bv.Parent = part
+                    end
+                    part.BodyVelocity.Velocity = dir * force
+                end
+            end
+        end
+    end)
+end
+
+local function stopGravityWell()
+    State.Gravity = false
+    if Connections.Gravity then Connections.Gravity:Disconnect() end
+    for _, part in ipairs(Workspace:GetDescendants()) do
+        if part:FindFirstChild("BodyVelocity") then
+            part.BodyVelocity:Destroy()
+        end
+    end
+    Status.Text = "🔴 Gravity Well OFF"
+end
+
+-- RAGDOLL
+local function startRagdoll()
+    if State.Ragdoll then return end
+    State.Ragdoll = true
+    Status.Text = "🟢 Ragdoll mode ON"
+    
+    local char = safeGetCharacter()
+    for _, part in ipairs(char:GetDescendants()) do
+        if part:IsA("BasePart") then
+            part.CanCollide = false
+        end
+    end
+    
+    local humanoid = getHumanoid(char)
+    if humanoid then
+        humanoid:ChangeState(Enum.HumanoidStateType.Dead)
+    end
+end
+
+local function stopRagdoll()
+    State.Ragdoll = false
+    Status.Text = "🔴 Ragdoll OFF"
+end
+
+createToggle(physicsPage, "🌀 Orbit Player", false, function(state)
+    if state then startOrbit() else stopOrbit() end
+end)
+
+createToggle(physicsPage, "🔮 Telekinesis", false, function(state)
+    if state then startTelekinesis() else stopTelekinesis() end
+end)
+
+createToggle(physicsPage, "🌌 Gravity Well", false, function(state)
+    if state then startGravityWell() else stopGravityWell() end
+end)
+
+createToggle(physicsPage, "💀 Ragdoll", false, function(state)
+    if state then startRagdoll() else stopRagdoll() end
+end)
+
+createSlider(physicsPage, "🌀 Orbit Speed", 0.01, 0.2, 0.05, function(val)
+    Values.OrbitSpeed = val
+end)
+
+createSlider(physicsPage, "🌀 Orbit Radius", 5, 50, 15, function(val)
+    Values.OrbitRadius = val
+end)
+
+createSlider(physicsPage, "🔮 TK Force", 50, 500, 100, function(val)
+    Values.TelekinesisForce = val
+end)
+
+--================================================--
+-- TROLLING TAB
+--================================================--
+local trollPage = ContentPages["Trolling"]
+
+-- SPINBOT
+local function startSpinbot()
+    if State.Spinbot then return end
+    State.Spinbot = true
+    Status.Text = "🟢 Spinbot ACTIVE"
+    
+    if Connections.Spinbot then Connections.Spinbot:Disconnect() end
+    
+    Connections.Spinbot = RunService.RenderStepped:Connect(function()
+        local root = getRoot()
+        if root then
+            root.CFrame = root.CFrame * CFrame.Angles(0, math.rad(Values.SpinSpeed), 0)
+        end
+    end)
+end
+
+local function stopSpinbot()
+    State.Spinbot = false
+    if Connections.Spinbot then Connections.Spinbot:Disconnect() end
+    Status.Text = "🔴 Spinbot OFF"
+end
+
+-- EXPLOSION RING
+local function triggerExplosion()
+    local myRoot = getRoot()
+    if not myRoot then return end
+    
+    playSound(SoundIds.Success, 1)
+    Status.Text = "💥 EXPLOSION!"
+    
+    for _, part in ipairs(Workspace:GetDescendants()) do
+        if part:IsA("BasePart") and not part.Anchored then
+            if part.Parent:FindFirstChildOfClass("Humanoid") then
+                if part.Parent ~= safeGetCharacter() then
+                    local dir = (part.Position - myRoot.Position).Unit
+                    part.AssemblyLinearVelocity = dir * 200
+                end
+            else
+                local dir = (part.Position - myRoot.Position).Unit
+                part.AssemblyLinearVelocity = dir * 150
+            end
+        end
+    end
+end
+
+createToggle(trollPage, "🌪️ Spinbot", false, function(state)
+    if state then startSpinbot() else stopSpinbot() end
+end)
+
+local explosionBtn = Instance.new("TextButton")
+explosionBtn.Size = UDim2.new(1, -20, 0, 40)
+explosionBtn.Position = UDim2.new(0, 10, 0, 0)
+explosionBtn.BackgroundColor3 = Color3.fromRGB(200, 100, 50)
+explosionBtn.Text = "💥 EXPLOSION RING"
+explosionBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+explosionBtn.Font = Enum.Font.GothamBold
+explosionBtn.TextSize = 12
+explosionBtn.Parent = trollPage
+
+local expCorner = Instance.new("UICorner")
+expCorner.CornerRadius = UDim.new(0, 8)
+expCorner.Parent = explosionBtn
+
+explosionBtn.MouseButton1Click:Connect(function()
+    playSound(SoundIds.Click, 0.5)
+    triggerExplosion()
+end)
+
+createSlider(trollPage, "🌪️ Spin Speed", 1, 20, 5, function(val)
+    Values.SpinSpeed = val
+end)
+
+--================================================--
+-- VISUALS TAB
+--================================================--
+local visualsPage = ContentPages["Visuals"]
+
+-- FULLBRIGHT
+local function startFullbright()
+    if State.Fullbright then return end
+    State.Fullbright = true
+    Status.Text = "🟢 Fullbright ON"
+    
+    if Connections.Fullbright then Connections.Fullbright:Disconnect() end
+    
+    Lighting.Ambient = Color3.fromRGB(255, 255, 255)
+    Lighting.OutdoorAmbient = Color3.fromRGB(255, 255, 255)
+    
+    Connections.Fullbright = RunService.Heartbeat:Connect(function()
+        Lighting.Ambient = Color3.fromRGB(255, 255, 255)
+        Lighting.OutdoorAmbient = Color3.fromRGB(255, 255, 255)
+    end)
+end
+
+local function stopFullbright()
+    State.Fullbright = false
+    if Connections.Fullbright then Connections.Fullbright:Disconnect() end
+    Lighting.Ambient = Color3.fromRGB(200, 200, 200)
+    Lighting.OutdoorAmbient = Color3.fromRGB(200, 200, 200)
+    Status.Text = "🔴 Fullbright OFF"
+end
+
+-- WALLHACK
+local function startWallhack()
+    if State.Wallhack then return end
+    State.Wallhack = true
+    Status.Text = "🟢 Wallhack ON"
+    
+    for _, part in ipairs(Workspace:GetDescendants()) do
+        if part:IsA("BasePart") and part.Parent:FindFirstChild("Humanoid") then
+            if part.Parent ~= safeGetCharacter() then
+                part.Transparency = 0.3
+            end
+        end
+    end
+end
+
+local function stopWallhack()
+    State.Wallhack = false
+    for _, part in ipairs(Workspace:GetDescendants()) do
+        if part:IsA("BasePart") and part.Parent:FindFirstChild("Humanoid") then
+            if part.Parent ~= safeGetCharacter() then
+                part.Transparency = 0
+            end
+        end
+    end
+    Status.Text = "🔴 Wallhack OFF"
+end
+
+createToggle(visualsPage, "☀️ Fullbright", false, function(state)
+    if state then startFullbright() else stopFullbright() end
+end)
+
+createToggle(visualsPage, "👀 Wallhack", false, function(state)
+    if state then startWallhack() else stopWallhack() end
+end)
+
+createSlider(visualsPage, "📺 FOV", 30, 120, 70, function(val)
+    Camera.FieldOfView = val
+end)
 
 --================================================--
 -- MISC TAB
 --================================================--
-do
-    local miscFrame = ContentFrames["Misc"]
+local miscPage = ContentPages["Misc"]
 
-    local function removeScript()
-        ScreenGui:Destroy()
-        notify("Misc", "❌ GUI Removed", 2)
+local creditLabel = Instance.new("TextLabel")
+creditLabel.Size = UDim2.new(1, -20, 0, 120)
+creditLabel.Position = UDim2.new(0, 10, 0, 0)
+creditLabel.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+creditLabel.Text = "⚛ NUCLEAR LABS v4.0\n🔐 Key: nuclear_labs_AFO\n📱 Right Ctrl = Toggle\n💻 100% FE Compatible\n👾 50+ Features"
+creditLabel.TextColor3 = Color3.fromRGB(200, 200, 220)
+creditLabel.Font = Enum.Font.Gotham
+creditLabel.TextSize = 11
+creditLabel.TextWrapped = true
+creditLabel.Parent = miscPage
+
+local creditCorner = Instance.new("UICorner")
+creditCorner.CornerRadius = UDim.new(0, 8)
+creditCorner.Parent = creditLabel
+
+--================================================--
+-- WINDOW CONTROLS
+--================================================--
+local visible = true
+MinBtn.MouseButton1Click:Connect(function()
+    playSound(SoundIds.Click, 0.4)
+    visible = not visible
+    ContentFrame.Visible = visible
+    TabsFrame.Visible = visible
+    if visible then
+        TweenService:Create(MainFrame, TweenInfo.new(0.2), {Size = UDim2.new(0, 900, 0, 600)}):Play()
+    else
+        TweenService:Create(MainFrame, TweenInfo.new(0.2), {Size = UDim2.new(0, 900, 0, 55)}):Play()
     end
+end)
 
-    local removeButton = Instance.new("TextButton")
-    removeButton.Size = UDim2.new(1, -20, 0, 40)
-    removeButton.Position = UDim2.new(0, 10, 0, 0)
-    removeButton.BackgroundColor3 = Color3.fromRGB(150, 60, 60)
-    removeButton.Text = "❌ Remove GUI"
-    removeButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-    removeButton.Font = Enum.Font.GothamBold
-    removeButton.TextSize = 13
-    removeButton.Parent = miscFrame
+CloseBtn.MouseButton1Click:Connect(function()
+    playSound(SoundIds.Click, 0.4)
+    ScreenGui:Destroy()
+    notify("Nuclear Labs", "🔴 GUI Closed", 2)
+end)
 
-    local removeCorner = Instance.new("UICorner")
-    removeCorner.CornerRadius = UDim.new(0, 8)
-    removeCorner.Parent = removeButton
+UserInputService.InputBegan:Connect(function(input, gp)
+    if gp then return end
+    if input.KeyCode == Enum.KeyCode.RightControl then
+        MainFrame.Visible = not MainFrame.Visible
+        if MainFrame.Visible then
+            Status.Text = "🟢 Menu Opened"
+        else
+            Status.Text = "🔴 Menu Hidden"
+        end
+    end
+end)
 
-    removeButton.MouseButton1Click:Connect(function()
-        playSound(SoundIds.ButtonClick, 0.7)
-        removeScript()
-    end)
+--================================================--
+-- STARTUP
+--================================================--
+MainFrame.Visible = false
 
-    local creditLabel = Instance.new("TextLabel")
-    creditLabel.Size = UDim2.new(1, -20, 0, 80)
-    creditLabel.Position = UDim2.new(0, 10, 0, 50)
-    creditLabel.BackgroundTransparency = 1
-    creditLabel.Text = "💻 Nuclear Labs v3.1\n🔐 Key: nuclear_labs_AFO\n📱 Right Ctrl to toggle\n👻 FE Player Collisions - Bypass"
-    creditLabel.TextColor3 = Color3.fromRGB(180, 180, 200)
-    creditLabel.Font = Enum.Font.Gotham
-    creditLabel.TextSize = 11
-    creditLabel.TextWrapped = true
-    creditLabel.Parent = miscFrame
-end
+local keyFrame = Instance.new("Frame")
+keyFrame.Size = UDim2.new(0, 400, 0, 200)
+keyFrame.Position = UDim2.new(0.5, -200, 0.5, -100)
+keyFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 25)
+keyFrame.BorderSizePixel = 0
+keyFrame.Parent = ScreenGui
 
-notify("Nuclear Labs", "🔐 Press Right Ctrl to open menu", 3)
+local keyCorner = Instance.new("UICorner")
+keyCorner.CornerRadius = UDim.new(0, 15)
+keyCorner.Parent = keyFrame
+
+local keyStroke = Instance.new("UIStroke")
+keyStroke.Thickness = 2
+keyStroke.Color = Color3.fromRGB(200, 100, 255)
+keyStroke.Parent = keyFrame
+
+local keyTitle = Instance.new("TextLabel")
+keyTitle.Size = UDim2.new(1, 0, 0, 50)
+keyTitle.BackgroundTransparency = 1
+keyTitle.Text = "🔐 ACCESS KEY"
+keyTitle.TextColor3 = Color3.fromRGB(255, 150, 255)
+keyTitle.Font = Enum.Font.GothamBold
+keyTitle.TextSize = 20
+keyTitle.Parent = keyFrame
+
+local keyBox = Instance.new("TextBox")
+keyBox.Size = UDim2.new(0.8, 0, 0, 40)
+keyBox.Position = UDim2.new(0.1, 0, 0, 60)
+keyBox.BackgroundColor3 = Color3.fromRGB(30, 30, 45)
+keyBox.PlaceholderText = "Enter key..."
+keyBox.Text = ""
+keyBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+keyBox.Font = Enum.Font.Gotham
+keyBox.TextSize = 14
+keyBox.Parent = keyFrame
+
+local keyBoxCorner = Instance.new("UICorner")
+keyBoxCorner.CornerRadius = UDim.new(0, 8)
+keyBoxCorner.Parent = keyBox
+
+local keySubmit = Instance.new("TextButton")
+keySubmit.Size = UDim2.new(0.6, 0, 0, 35)
+keySubmit.Position = UDim2.new(0.2, 0, 0, 150)
+keySubmit.BackgroundColor3 = Color3.fromRGB(100, 50, 200)
+keySubmit.Text = "SUBMIT"
+keySubmit.TextColor3 = Color3.fromRGB(255, 255, 255)
+keySubmit.Font = Enum.Font.GothamBold
+keySubmit.TextSize = 14
+keySubmit.Parent = keyFrame
+
+local keySubmitCorner = Instance.new("UICorner")
+keySubmitCorner.CornerRadius = UDim.new(0, 8)
+keySubmitCorner.Parent = keySubmit
+
+keySubmit.MouseButton1Click:Connect(function()
+    playSound(SoundIds.Click, 0.5)
+    if keyBox.Text == "nuclear_labs_AFO" then
+        playSound(SoundIds.Teleport, 1)
+        keyFrame:Destroy()
+        MainFrame.Visible = true
+        Status.Text = "🟢 Menu Ready"
+        notify("Nuclear Labs", "✅ Welcome!", 3)
+    else
+        playSound(SoundIds.Error, 0.8)
+        keyBox.Text = ""
+        keyTitle.TextColor3 = Color3.fromRGB(255, 100, 100)
+        wait(0.5)
+        keyTitle.TextColor3 = Color3.fromRGB(255, 150, 255)
+    end
+end)
+
+notify("Nuclear Labs", "🔐 Access key required - Right Ctrl to toggle", 4)
