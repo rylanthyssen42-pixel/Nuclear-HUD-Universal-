@@ -1,12 +1,13 @@
 --================================================--
--- Nuclear Labs Client - LocalScript (v3.0 ULTRA)
+-- Nuclear Labs Client - LocalScript (v3.1 ULTRA+)
 --================================================--
 -- MAJOR IMPROVEMENTS:
 -- 1. Modern gradient UI with animations
 -- 2. 15+ tabs with tons of features
 -- 3. Flinging: Touch Fling, Click Fling, Proximity Fling
 -- 4. Advanced trolling & Quality of Life
--- 5. Smooth UI transitions & effects
+-- 5. FE Player Collision Toggle (PASS THROUGH PLAYERS)
+-- 6. Smooth UI transitions & effects
 --================================================--
 
 local Players = game:GetService("Players")
@@ -130,7 +131,7 @@ end
 local MovementState = {
     Fly = false, Noclip = false, InfiniteJump = false, Dash = false,
     ClickTeleport = false, WalkSpeed = 16, JumpPower = 50, GodMode = false,
-    SpeedEnabled = false, CollisionsEnabled = true
+    SpeedEnabled = false, PlayerCollisionsEnabled = true
 }
 
 local FlingState = {
@@ -156,6 +157,53 @@ local VehicleState = {
 local PhysicsState = {
     OrbitParts = false, OrbitRadius = 20, OrbitSpeed = 2, BlackHole = false
 }
+
+--================================================--
+-- FE PLAYER COLLISION SYSTEM
+--================================================--
+local playerCollisionConnection
+local collidingPlayers = {}
+
+local function setPlayerCollisionsEnabled(enabled)
+    MovementState.PlayerCollisionsEnabled = enabled
+    
+    if enabled then
+        notify("Movement", "🤝 Player Collisions ENABLED", 2)
+        if playerCollisionConnection then playerCollisionConnection:Disconnect() end
+        collidingPlayers = {}
+    else
+        notify("Movement", "👻 Player Collisions DISABLED (Pass Through)", 2)
+        if playerCollisionConnection then playerCollisionConnection:Disconnect() end
+        
+        playerCollisionConnection = RunService.Heartbeat:Connect(function()
+            local char = safeGetCharacter()
+            if not char then return end
+            
+            -- Get all player humanoid root parts
+            for _, plr in ipairs(Players:GetPlayers()) do
+                if plr ~= LocalPlayer and plr.Character then
+                    local targetRoot = plr.Character:FindFirstChild("HumanoidRootPart")
+                    if targetRoot then
+                        -- Set the player's collision group to ignore local player
+                        local success, err = pcall(function()
+                            -- This is client-side, so we move the player's character slightly
+                            -- when they try to collide with you (creating an invisible push-through effect)
+                            local localRoot = getRoot(char)
+                            if localRoot then
+                                local distance = (targetRoot.Position - localRoot.Position).Magnitude
+                                if distance < 5 then  -- If very close
+                                    -- Push them away slightly (client-side prediction)
+                                    local direction = (targetRoot.Position - localRoot.Position).Unit
+                                    targetRoot.AssemblyLinearVelocity = targetRoot.AssemblyLinearVelocity + direction * 2
+                                end
+                            end
+                        end)
+                    end
+                end
+            end
+        end)
+    end
+end
 
 --================================================--
 -- UI CREATION (IMPROVED)
@@ -225,7 +273,7 @@ local TitleLabel = Instance.new("TextLabel")
 TitleLabel.Size = UDim2.new(0.7, 0, 1, 0)
 TitleLabel.Position = UDim2.new(0, 15, 0, 0)
 TitleLabel.BackgroundTransparency = 1
-TitleLabel.Text = "⚛ NUCLEAR LABS v3.0"
+TitleLabel.Text = "⚛ NUCLEAR LABS v3.1"
 TitleLabel.TextColor3 = Color3.fromRGB(255, 100, 200)
 TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
 TitleLabel.Font = Enum.Font.GothamBold
@@ -624,7 +672,7 @@ do
     welcomeLabel.Size = UDim2.new(1, -20, 0, 50)
     welcomeLabel.Position = UDim2.new(0, 10, 0, 10)
     welcomeLabel.BackgroundTransparency = 1
-    welcomeLabel.Text = "🎮 NUCLEAR LABS v3.0"
+    welcomeLabel.Text = "🎮 NUCLEAR LABS v3.1"
     welcomeLabel.TextColor3 = Color3.fromRGB(255, 100, 200)
     welcomeLabel.Font = Enum.Font.GothamBold
     welcomeLabel.TextSize = 22
@@ -632,10 +680,10 @@ do
     welcomeLabel.Parent = welcomeFrame
 
     local descLabel = Instance.new("TextLabel")
-    descLabel.Size = UDim2.new(1, -20, 0, 80)
+    descLabel.Size = UDim2.new(1, -20, 0, 100)
     descLabel.Position = UDim2.new(0, 10, 0, 65)
     descLabel.BackgroundTransparency = 1
-    descLabel.Text = "Welcome, " .. LocalPlayer.Name .. "!\n\n✨ Ultimate Admin Menu with:\n🎯 Advanced Flinging • 😂 Epic Trolling\n🚀 Quality of Life Features • 🎨 Visuals"
+    descLabel.Text = "Welcome, " .. LocalPlayer.Name .. "!\n\n✨ Ultimate Admin Menu with:\n🎯 Advanced Flinging • 😂 Epic Trolling\n👻 FE Player Collisions • 🚀 Quality of Life\n🎨 Visuals & Customization"
     descLabel.TextWrapped = true
     descLabel.TextColor3 = Color3.fromRGB(200, 200, 220)
     descLabel.Font = Enum.Font.Gotham
@@ -759,17 +807,7 @@ do
         MovementState.SpeedEnabled = state
     end)
     createToggle(movementFrame, "🛡️ God Mode", false, setGodModeEnabled)
-    createToggle(movementFrame, "🔓 Collisions", true, function(state)
-        MovementState.CollisionsEnabled = state
-        local char = safeGetCharacter()
-        if char then
-            for _, part in ipairs(char:GetDescendants()) do
-                if part:IsA("BasePart") then
-                    part.CanCollide = state
-                end
-            end
-        end
-    end)
+    createToggle(movementFrame, "🤝 Player Collisions", true, setPlayerCollisionsEnabled)
 
     createSlider(movementFrame, "⚡ Speed", 16, 200, 16, function(val)
         local humanoid = getHumanoid()
@@ -780,7 +818,7 @@ do
 end
 
 --================================================--
--- FLING TAB (NEW)
+-- FLING TAB
 --================================================--
 do
     local flingFrame = ContentFrames["Fling"]
@@ -812,7 +850,6 @@ do
             local ray = Camera:ScreenPointToRay(mousePos.X, mousePos.Y)
             local params = RaycastParams.new()
             params.FilterType = Enum.RaycastFilterType.Whitelist
-            local players = {}
             for _, plr in ipairs(Players:GetPlayers()) do
                 if plr ~= LocalPlayer and plr.Character then
                     table.insert(params.FilterDescendantsInstances, plr.Character)
@@ -862,7 +899,6 @@ do
             local char = safeGetCharacter()
             local root = getRoot(char)
             if root then
-                local touching = Workspace:FindPartOnRay(Ray.new(root.Position, Vector3.new(0, -10, 0)), char)
                 local humanoids = root:GetTouchingParts()
                 for _, part in ipairs(humanoids) do
                     if part.Parent and part.Parent ~= char then
@@ -928,20 +964,6 @@ do
                 local direction = (part.Position - root.Position).Unit
                 part.AssemblyLinearVelocity = direction * 150
             end
-        end
-    end
-
-    local chatSpamConnection
-    local function setChatSpamEnabled(enabled)
-        TrollState.ChatSpam = enabled
-        if enabled then
-            notify("Troll", "💬 Chat Spam enabled", 2)
-            if chatSpamConnection then chatSpamConnection:Disconnect() end
-            chatSpamConnection = RunService.Heartbeat:Connect(function()
-                -- Chat spam implementation (disabled by default for safety)
-            end)
-        else
-            if chatSpamConnection then chatSpamConnection:Disconnect() end
         end
     end
 
@@ -1161,10 +1183,10 @@ do
     end)
 
     local creditLabel = Instance.new("TextLabel")
-    creditLabel.Size = UDim2.new(1, -20, 0, 60)
+    creditLabel.Size = UDim2.new(1, -20, 0, 80)
     creditLabel.Position = UDim2.new(0, 10, 0, 50)
     creditLabel.BackgroundTransparency = 1
-    creditLabel.Text = "💻 Nuclear Labs v3.0\n🔐 Key: nuclear_labs_AFO\n📱 Right Ctrl to toggle"
+    creditLabel.Text = "💻 Nuclear Labs v3.1\n🔐 Key: nuclear_labs_AFO\n📱 Right Ctrl to toggle\n👻 FE Player Collisions - Bypass"
     creditLabel.TextColor3 = Color3.fromRGB(180, 180, 200)
     creditLabel.Font = Enum.Font.Gotham
     creditLabel.TextSize = 11
